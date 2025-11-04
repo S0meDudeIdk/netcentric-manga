@@ -8,6 +8,7 @@ import (
 	"mangahub/pkg/database"
 	"mangahub/pkg/models"
 	"strings"
+	"time"
 )
 
 // Service handles manga-related operations
@@ -287,4 +288,143 @@ func (s *Service) GetAllGenres() ([]string, error) {
 	}
 
 	return allGenres, nil
+}
+
+// CreateManga creates a new manga entry
+func (s *Service) CreateManga(manga models.Manga) (*models.Manga, error) {
+	// Set genres JSON
+	if err := manga.SetGenres(manga.Genres); err != nil {
+		return nil, fmt.Errorf("failed to set genres: %w", err)
+	}
+
+	// Set created time
+	manga.CreatedAt = time.Now()
+
+	// Insert into database
+	_, err := s.db.Exec(`
+		INSERT INTO manga 
+		(id, title, author, genres, status, total_chapters, description, cover_url, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		manga.ID, manga.Title, manga.Author, manga.GenresJSON,
+		manga.Status, manga.TotalChapters, manga.Description,
+		manga.CoverURL, manga.CreatedAt)
+
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return nil, fmt.Errorf("manga with ID '%s' already exists", manga.ID)
+		}
+		return nil, fmt.Errorf("failed to create manga: %w", err)
+	}
+
+	return &manga, nil
+}
+
+// UpdateManga updates an existing manga entry
+func (s *Service) UpdateManga(id string, manga models.Manga) (*models.Manga, error) {
+	// Check if manga exists
+	existingManga, err := s.GetManga(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set ID to ensure consistency
+	manga.ID = id
+	manga.CreatedAt = existingManga.CreatedAt
+
+	// Set genres JSON
+	if err := manga.SetGenres(manga.Genres); err != nil {
+		return nil, fmt.Errorf("failed to set genres: %w", err)
+	}
+
+	// Update in database
+	_, err = s.db.Exec(`
+		UPDATE manga SET 
+		title = ?, author = ?, genres = ?, status = ?, 
+		total_chapters = ?, description = ?, cover_url = ?
+		WHERE id = ?`,
+		manga.Title, manga.Author, manga.GenresJSON, manga.Status,
+		manga.TotalChapters, manga.Description, manga.CoverURL, id)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to update manga: %w", err)
+	}
+
+	return &manga, nil
+}
+
+// DeleteManga deletes a manga entry
+func (s *Service) DeleteManga(id string) error {
+	// Check if manga exists
+	_, err := s.GetManga(id)
+	if err != nil {
+		return err
+	}
+
+	// Start transaction to ensure data consistency
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete user progress for this manga
+	_, err = tx.Exec("DELETE FROM user_progress WHERE manga_id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete user progress: %w", err)
+	}
+
+	// Delete manga
+	_, err = tx.Exec("DELETE FROM manga WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete manga: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// GetMangaStats returns statistics about manga in the database
+func (s *Service) GetMangaStats() (map[string]interface{}, error) {
+	stats := make(map[string]interface{})
+
+	// Total manga count
+	var totalManga int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM manga").Scan(&totalManga)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total manga count: %w", err)
+	}
+	stats["total_manga"] = totalManga
+
+	// Count by status
+	statusRows, err := s.db.Query("SELECT status, COUNT(*) FROM manga GROUP BY status")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status counts: %w", err)
+	}
+	defer statusRows.Close()
+
+	statusCounts := make(map[string]int)
+	for statusRows.Next() {
+		var status string
+		var count int
+		if err := statusRows.Scan(&status, &count); err != nil {
+			log.Printf("Error scanning status row: %v", err)
+			continue
+		}
+		statusCounts[status] = count
+	}
+	stats["by_status"] = statusCounts
+
+	// Average chapters
+	var avgChapters float64
+	err = s.db.QueryRow("SELECT AVG(total_chapters) FROM manga WHERE total_chapters > 0").Scan(&avgChapters)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get average chapters: %w", err)
+	}
+	stats["average_chapters"] = avgChapters
+
+	return stats, nil
 }
