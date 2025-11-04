@@ -103,3 +103,58 @@ type AddToLibraryRequest struct {
 	MangaID string `json:"manga_id" binding:"required"`
 	Status  string `json:"status" binding:"required,oneof=reading completed plan_to_read dropped"`
 }
+
+// CreateMangaRequest represents a request to create a new manga
+type CreateMangaRequest struct {
+	ID            string   `json:"id" binding:"required,min=1,max=100"`
+	Title         string   `json:"title" binding:"required,min=1,max=200"`
+	Author        string   `json:"author" binding:"required,min=1,max=100"`
+	Genres        []string `json:"genres" binding:"required,min=1"`
+	Status        string   `json:"status" binding:"required,oneof=ongoing completed hiatus dropped cancelled"`
+	TotalChapters int      `json:"total_chapters" binding:"min=0"`
+	Description   string   `json:"description" binding:"max=2000"`
+	CoverURL      string   `json:"cover_url" binding:"omitempty,url"`
+}
+
+// UpdateMangaRequest represents a request to update manga information
+type UpdateMangaRequest struct {
+	Title         string   `json:"title" binding:"required,min=1,max=200"`
+	Author        string   `json:"author" binding:"required,min=1,max=100"`
+	Genres        []string `json:"genres" binding:"required,min=1"`
+	Status        string   `json:"status" binding:"required,oneof=ongoing completed hiatus dropped cancelled"`
+	TotalChapters int      `json:"total_chapters" binding:"min=0"`
+	Description   string   `json:"description" binding:"max=2000"`
+	CoverURL      string   `json:"cover_url" binding:"omitempty,url"`
+}
+
+// MangaListResponse represents a paginated list of manga
+type MangaListResponse struct {
+	Manga      []Manga `json:"manga"`
+	Total      int     `json:"total"`
+	Page       int     `json:"page"`
+	PerPage    int     `json:"per_page"`
+	TotalPages int     `json:"total_pages"`
+}
+
+// LibraryStatsResponse represents user library statistics
+type LibraryStatsResponse struct {
+	TotalManga    int `json:"total_manga"`
+	Reading       int `json:"reading"`
+	Completed     int `json:"completed"`
+	PlanToRead    int `json:"plan_to_read"`
+	Dropped       int `json:"dropped"`
+	TotalChapters int `json:"total_chapters_read"`
+}
+
+// BatchUpdateRequest represents a request to update multiple manga progress
+type BatchUpdateRequest struct {
+	Updates []UpdateProgressRequest `json:"updates" binding:"required,dive"`
+}
+
+// LibraryFilterRequest represents filtering parameters for user library
+type LibraryFilterRequest struct {
+	Status string `json:"status" form:"status"`
+	SortBy string `json:"sort_by" form:"sort_by"` // title, author, progress, updated
+	Limit  int    `json:"limit" form:"limit"`
+	Offset int    `json:"offset" form:"offset"`
+}

@@ -6,6 +6,7 @@ import (
 	"mangahub/internal/manga"
 	"mangahub/internal/user"
 	"mangahub/pkg/database"
+	"mangahub/pkg/middleware"
 	"mangahub/pkg/models"
 	"mangahub/pkg/utils"
 	"net/http"
@@ -33,8 +34,21 @@ func NewAPIServer() *APIServer {
 
 	router := gin.Default()
 
+	// Add security headers
+	router.Use(middleware.SecurityHeaders())
+
+	// Add rate limiting (100 requests per minute)
+	router.Use(middleware.CreateRateLimiter(100))
+
+	// Add request size limit (10MB)
+	router.Use(middleware.RequestSizeLimit(10 * 1024 * 1024))
+
 	// Add CORS middleware
 	router.Use(corsMiddleware())
+
+	// Add request and response validation
+	router.Use(middleware.RequestValidator())
+	router.Use(middleware.ResponseValidator())
 
 	// Add request logging middleware
 	router.Use(gin.Logger())
@@ -117,6 +131,28 @@ func authMiddleware() gin.HandlerFunc {
 	}
 }
 
+// adminMiddleware checks if user has admin privileges
+func adminMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// For now, we'll use a simple check for admin email or username
+		// In production, you'd have proper role-based access control
+		email := c.GetString("email")
+		username := c.GetString("username")
+
+		// Simple admin check - you can customize this logic
+		isAdmin := email == "admin@mangahub.com" || username == "admin" ||
+			strings.HasPrefix(email, "admin") || strings.HasSuffix(username, "admin")
+
+		if !isAdmin {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin privileges required"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
 // setupRoutes configures all API routes
 func (s *APIServer) setupRoutes() {
 	// Health check
@@ -141,8 +177,13 @@ func (s *APIServer) setupRoutes() {
 			{
 				users.GET("/profile", s.getProfile)
 				users.GET("/library", s.getLibrary)
+				users.GET("/library/filtered", s.getFilteredLibrary)
+				users.GET("/library/stats", s.getLibraryStats)
+				users.GET("/recommendations", s.getRecommendations)
 				users.POST("/library", s.addToLibrary)
 				users.PUT("/progress", s.updateProgress)
+				users.PUT("/progress/batch", s.batchUpdateProgress)
+				users.DELETE("/library/:manga_id", s.removeFromLibrary)
 			}
 
 			// Manga routes
@@ -152,6 +193,16 @@ func (s *APIServer) setupRoutes() {
 				manga.GET("/:id", s.getManga)
 				manga.GET("/genres", s.getGenres)
 				manga.GET("/popular", s.getPopularManga)
+				manga.GET("/stats", s.getMangaStats)
+
+				// Admin routes for manga management
+				adminManga := manga.Group("/")
+				adminManga.Use(adminMiddleware())
+				{
+					adminManga.POST("/", s.createManga)
+					adminManga.PUT("/:id", s.updateManga)
+					adminManga.DELETE("/:id", s.deleteManga)
+				}
 			}
 		}
 	}
@@ -286,6 +337,126 @@ func (s *APIServer) updateProgress(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Progress updated successfully"})
 }
 
+// Get filtered library endpoint
+func (s *APIServer) getFilteredLibrary(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	// Parse query parameters
+	req := models.LibraryFilterRequest{
+		Status: c.Query("status"),
+		SortBy: c.Query("sort_by"),
+		Limit:  20,
+		Offset: 0,
+	}
+
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 {
+			req.Limit = limit
+		}
+	}
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if offset, err := strconv.Atoi(offsetStr); err == nil && offset >= 0 {
+			req.Offset = offset
+		}
+	}
+
+	progressList, err := s.UserService.GetFilteredLibrary(userID, req.Status, req.SortBy, req.Limit, req.Offset)
+	if err != nil {
+		log.Printf("Get filtered library error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"progress": progressList,
+		"count":    len(progressList),
+	})
+}
+
+// Get library stats endpoint
+func (s *APIServer) getLibraryStats(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	stats, err := s.UserService.GetLibraryStats(userID)
+	if err != nil {
+		log.Printf("Get library stats error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// Get recommendations endpoint
+func (s *APIServer) getRecommendations(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	limit := 10
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 20 {
+			limit = l
+		}
+	}
+
+	recommendations, err := s.UserService.GetReadingRecommendations(userID, limit)
+	if err != nil {
+		log.Printf("Get recommendations error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"recommendations": recommendations,
+		"count":           len(recommendations),
+	})
+}
+
+// Batch update progress endpoint
+func (s *APIServer) batchUpdateProgress(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req models.BatchUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err := s.UserService.BatchUpdateProgress(userID, req.Updates)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			log.Printf("Batch update progress error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Progress updated successfully",
+		"updated": len(req.Updates),
+	})
+}
+
+// Remove from library endpoint
+func (s *APIServer) removeFromLibrary(c *gin.Context) {
+	userID := c.GetString("user_id")
+	mangaID := c.Param("manga_id")
+
+	err := s.UserService.RemoveFromLibrary(userID, mangaID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			log.Printf("Remove from library error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Manga removed from library successfully"})
+}
+
 // Search manga endpoint
 func (s *APIServer) searchManga(c *gin.Context) {
 	// Parse query parameters
@@ -384,6 +555,105 @@ func (s *APIServer) getPopularManga(c *gin.Context) {
 		"manga": mangaList,
 		"count": len(mangaList),
 	})
+}
+
+// Get manga stats endpoint
+func (s *APIServer) getMangaStats(c *gin.Context) {
+	stats, err := s.MangaService.GetMangaStats()
+	if err != nil {
+		log.Printf("Get manga stats error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// Create manga endpoint (admin only)
+func (s *APIServer) createManga(c *gin.Context) {
+	var req models.CreateMangaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Convert request to manga model
+	manga := models.Manga{
+		ID:            req.ID,
+		Title:         req.Title,
+		Author:        req.Author,
+		Genres:        req.Genres,
+		Status:        req.Status,
+		TotalChapters: req.TotalChapters,
+		Description:   req.Description,
+		CoverURL:      req.CoverURL,
+	}
+
+	createdManga, err := s.MangaService.CreateManga(manga)
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		} else {
+			log.Printf("Create manga error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusCreated, createdManga)
+}
+
+// Update manga endpoint (admin only)
+func (s *APIServer) updateManga(c *gin.Context) {
+	mangaID := c.Param("id")
+
+	var req models.UpdateMangaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Convert request to manga model
+	manga := models.Manga{
+		Title:         req.Title,
+		Author:        req.Author,
+		Genres:        req.Genres,
+		Status:        req.Status,
+		TotalChapters: req.TotalChapters,
+		Description:   req.Description,
+		CoverURL:      req.CoverURL,
+	}
+
+	updatedManga, err := s.MangaService.UpdateManga(mangaID, manga)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Manga not found"})
+		} else {
+			log.Printf("Update manga error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, updatedManga)
+}
+
+// Delete manga endpoint (admin only)
+func (s *APIServer) deleteManga(c *gin.Context) {
+	mangaID := c.Param("id")
+
+	err := s.MangaService.DeleteManga(mangaID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Manga not found"})
+		} else {
+			log.Printf("Delete manga error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Manga deleted successfully"})
 }
 
 // Start starts the HTTP server
