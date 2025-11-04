@@ -198,5 +198,105 @@
     "total_chapters": 200,
     "description": "As a child, Thorfinn sat at the feet of the great Leif Ericson and thrilled to wild tales of a land far to the west. But his youthful fantasies were shattered by a mercenary raid. Raised by the Vikings who murdered his family, Thorfinn became a terrifying warrior, forever seeking to kill the band's leader, Askeladd, and avenge his father. Sustaining Thorfinn through his ordeal are his pride in his family and his dreams of a fertile westward land, a land without war or slavery...the land Leif called Vinland.",
     "cover_url": "https://example.com/covers/vinland-saga.jpg"
+  },
+  {
+    "id": "spy-x-family",
+    "title": "Spy x Family",
+    "author": "Endo Tatsuya",
+    "genres": ["Action", "Comedy", "Family", "Shounen", "Slice of Life"],
+    "status": "ongoing",
+    "total_chapters": 95,
+    "description": "Master spy Twilight is unparalleled when it comes to going undercover on dangerous missions for the betterment of the world. But when he receives the ultimate assignment—to get married and have a child—he may finally be in over his head! Not one to depend on others, Twilight has his work cut out for him procuring both a wife and a child for his mission to infiltrate an elite private school.",
+    "cover_url": "https://example.com/covers/spy-x-family.jpg"
+  },
+  {
+    "id": "chainsaw-man",
+    "title": "Chainsaw Man",
+    "author": "Fujimoto Tatsuki",
+    "genres": ["Action", "Horror", "Shounen", "Supernatural"],
+    "status": "ongoing",
+    "total_chapters": 97,
+    "description": "Denji's a poor young man who'll do anything for a bit of cash, even hunting down devils with his pet devil-dog Pochita. He's a simple man with simple dreams, drowning under a mountain of debt. But his sad life gets turned upside down one day when he's betrayed by someone he trusts. Now with the power of a devil inside him, Denji's become a whole new man—Chainsaw Man!",
+    "cover_url": "https://example.com/covers/chainsaw-man.jpg"
+  },
+  {
+    "id": "your-name",
+    "title": "Your Name",
+    "author": "Kotone Ranmaru",
+    "genres": ["Drama", "Romance", "Shounen", "Supernatural"],
+    "status": "completed",
+    "total_chapters": 9,
+    "description": "Based on the hit animated film. Mitsuha, a high school girl living in a small town in the mountains, has a dream that she's a boy living in Tokyo. Taki, a high school boy in Tokyo, dreams he's a girl living in a quaint town. Sharing bodies, relationships, and lives, the two become inextricably interwoven—but are any connections truly inseverable?",
+    "cover_url": "https://example.com/covers/your-name.jpg"
+  },
+  {
+    "id": "haikyuu",
+    "title": "Haikyuu!!",
+    "author": "Furudate Haruichi",
+    "genres": ["Comedy", "Drama", "School", "Shounen", "Sports"],
+    "status": "completed",
+    "total_chapters": 402,
+    "description": "After losing his first and last volleyball match against Tobio Kageyama, 'the King of the Court,' Shoyo Hinata swears to become his rival after graduating middle school. But what happens when the guy he wants to defeat ends up being his teammate?",
+    "cover_url": "https://example.com/covers/haikyuu.jpg"
+  },
+  {
+    "id": "kaguya-sama",
+    "title": "Kaguya-sama: Love is War",
+    "author": "Akasaka Aka",
+    "genres": ["Comedy", "Romance", "School", "Seinen", "Slice of Life"],
+    "status": "completed",
+    "total_chapters": 281,
+    "description": "As leaders of their prestigious academy's student council, Kaguya and Miyuki are the elite of the elite! But it's lonely at the top... Luckily for them, they've fallen in love! There's just one problem—they both have too much pride to admit it. And so begins the daily war of love, where one must induce the other to confess their romantic feelings first!",
+    "cover_url": "https://example.com/covers/kaguya-sama.jpg"
+  },
+  {
+    "id": "mob-psycho-100",
+    "title": "Mob Psycho 100",
+    "author": "ONE",
+    "genres": ["Action", "Comedy", "School", "Shounen", "Supernatural"],
+    "status": "completed",
+    "total_chapters": 101,
+    "description": "Kageyama Shigeo (nicknamed Mob) is a 8th grader with psychic abilities. He could bend spoons and lift objects with his mind from a young age, but he slowly began to withhold from using his abilities in public due to the negative attention he kept receiving. Now, the only thing he wants is to become friends with a girl in his class, Tsubomi. With his psychic powers repressed, Mob's only outlet for his energy is to improve his physical health by joining his school's Body Improvement Club.",
+    "cover_url": "https://example.com/covers/mob-psycho-100.jpg"
+  },
+  {
+    "id": "violet-evergarden",
+    "title": "Violet Evergarden",
+    "author": "Akatsuki Kana",
+    "genres": ["Drama", "Fantasy", "Josei", "Military", "Slice of Life"],
+    "status": "completed",
+    "total_chapters": 13,
+    "description": "The Great War finally came to an end after four long years of conflict; fractured in two, the continent of Telesis slowly began to flourish once again. Caught up in the bloodshed was Violet Evergarden, a young girl raised for the sole purpose of decimating enemy lines. Hospitalized and maimed in a bloody skirmish during the War's final leg, she was left with only words from the person she held dearest, but with no understanding of their meaning.",
+    "cover_url": "https://example.com/covers/violet-evergarden.jpg"
+  },
+  {
+    "id": "blue-lock",
+    "title": "Blue Lock",
+    "author": "Muneyuki Kaneshiro",
+    "genres": ["Drama", "School", "Shounen", "Sports"],
+    "status": "ongoing",
+    "total_chapters": 250,
+    "description": "After a disastrous defeat at the 2018 World Cup, Japan's team struggles to regroup. But what's missing? An absolute Ace Striker, who can guide them to the win. The Japan Football Union is hell-bent on creating a striker who hungers for goals and thirsts for victory, and who can be the decisive instrument in turning around a losing match...and to do so, they've gathered 300 of Japan's best and brightest youth players. Who will emerge to lead the team...and will they be able to out-muscle and out-ego everyone who stands in their way?",
+    "cover_url": "https://example.com/covers/blue-lock.jpg"
+  },
+  {
+    "id": "promised-neverland",
+    "title": "The Promised Neverland",
+    "author": "Kaiu Shirai",
+    "genres": ["Drama", "Horror", "Mystery", "Shounen", "Thriller"],
+    "status": "completed",
+    "total_chapters": 181,
+    "description": "Emma, Norman and Ray are the brightest kids at the Grace Field House orphanage. And under the care of the woman they refer to as 'Mom,' all the kids have enjoyed a comfortable life. Good food, clean clothes and the perfect environment to learn—what more could an orphan ask for? One day, though, Emma and Norman uncover the dark truth of the outside world they are forbidden from seeing.",
+    "cover_url": "https://example.com/covers/promised-neverland.jpg"
+  },
+  {
+    "id": "weathering-with-you",
+    "title": "Weathering With You",
+    "author": "Kubota Watari",
+    "genres": ["Drama", "Romance", "Shounen", "Supernatural"],
+    "status": "completed",
+    "total_chapters": 16,
+    "description": "High school student Hodaka leaves his home on an isolated island and moves to Tokyo, but he immediately becomes broke! He lives his days in isolation, but finally finds work as a writer for a mysterious occult magazine. Then one day, Hodaka meets Hina on a busy street corner. This bright and strong-willed girl possesses a strange and wonderful ability: the power to stop the rain and clear the sky...",
+    "cover_url": "https://example.com/covers/weathering-with-you.jpg"
   }
 ]
