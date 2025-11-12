@@ -1,0 +1,48 @@
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Header from './components/Header';
+import Footer from './components/Footer';
+import Home from './pages/Home';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Browse from './pages/Browse';
+import Library from './pages/Library';
+import Search from './pages/Search';
+import MangaDetail from './pages/MangaDetail';
+import authService from './services/authService';
+import './App.css';
+
+// Protected Route wrapper
+const ProtectedRoute = ({ children }) => {
+  return authService.isAuthenticated() ? children : <Navigate to="/login" />;
+};
+
+function App() {
+  return (
+    <Router>
+      <div className="App min-h-screen flex flex-col bg-gray-50">
+        <Header />
+        <main className="flex-grow">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            {/* Public routes - no login required */}
+            <Route path="/browse" element={<Browse />} />
+            <Route path="/search" element={<Search />} />
+            <Route path="/manga/:id" element={<MangaDetail />} />
+            {/* Protected routes - login required */}
+            <Route path="/library" element={
+              <ProtectedRoute>
+                <Library />
+              </ProtectedRoute>
+            } />
+          </Routes>
+        </main>
+        <Footer />
+      </div>
+    </Router>
+  );
+}
+
+export default App;

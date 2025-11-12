@@ -7,16 +7,18 @@ import (
 
 // Manga represents a manga series in the system
 type Manga struct {
-	ID            string    `json:"id" db:"id"`
-	Title         string    `json:"title" db:"title"`
-	Author        string    `json:"author" db:"author"`
-	Genres        []string  `json:"genres" db:"-"` // Will be handled separately for DB
-	GenresJSON    string    `json:"-" db:"genres"` // JSON string for database storage
-	Status        string    `json:"status" db:"status"`
-	TotalChapters int       `json:"total_chapters" db:"total_chapters"`
-	Description   string    `json:"description" db:"description"`
-	CoverURL      string    `json:"cover_url" db:"cover_url"`
-	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	ID              string    `json:"id" db:"id"`
+	Title           string    `json:"title" db:"title"`
+	Author          string    `json:"author" db:"author"`
+	Genres          []string  `json:"genres" db:"-"` // Will be handled separately for DB
+	GenresJSON      string    `json:"-" db:"genres"` // JSON string for database storage
+	Status          string    `json:"status" db:"status"`
+	TotalChapters   int       `json:"total_chapters" db:"total_chapters"`
+	Description     string    `json:"description" db:"description"`
+	CoverURL        string    `json:"cover_url" db:"cover_url"`
+	PublicationYear int       `json:"publication_year" db:"publication_year"`
+	Rating          float64   `json:"rating" db:"rating"`
+	CreatedAt       time.Time `json:"created_at" db:"created_at"`
 }
 
 // MarshalJSON handles the conversion of genres for JSON output
