@@ -51,7 +51,7 @@ echo -e "\n"
 
 # Test 5: Search Manga
 echo -e "${YELLOW}Test 5: Search Manga (Query: 'one')${NC}"
-$CURL_CMD -s "$API_URL/manga/?query=one" \
+$CURL_CMD -s "$API_URL/manga?query=one" \
   -H "Authorization: Bearer $TOKEN"
 echo -e "\n"
 

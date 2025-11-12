@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"mangahub/internal/auth"
+	"mangahub/internal/external"
 	"mangahub/internal/manga"
 	"mangahub/internal/user"
 	"mangahub/pkg/database"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 // APIServer represents the HTTP API server
@@ -24,13 +26,19 @@ type APIServer struct {
 	Router       *gin.Engine
 	UserService  *user.Service
 	MangaService *manga.Service
+	MALClient    *external.MALClient
+	JikanClient  *external.JikanClient
 	Port         string
 }
 
 // NewAPIServer creates a new API server instance
 func NewAPIServer() *APIServer {
-	// Set Gin mode
-	if os.Getenv("GIN_MODE") == "release" {
+	// Set Gin mode from environment
+	ginMode := os.Getenv("GIN_MODE")
+	if ginMode == "" {
+		ginMode = "debug" // Default to debug mode
+	}
+	if ginMode == "release" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
@@ -39,11 +47,25 @@ func NewAPIServer() *APIServer {
 	// Add security headers
 	router.Use(middleware.SecurityHeaders())
 
-	// Add rate limiting (100 requests per minute)
-	router.Use(middleware.CreateRateLimiter(100))
+	// Add rate limiting from environment (default: 100 requests per minute)
+	rateLimitStr := os.Getenv("RATE_LIMIT_REQUESTS_PER_MINUTE")
+	rateLimit := 100 // Default
+	if rateLimitStr != "" {
+		if rl, err := strconv.Atoi(rateLimitStr); err == nil && rl > 0 {
+			rateLimit = rl
+		}
+	}
+	router.Use(middleware.CreateRateLimiter(rateLimit))
 
-	// Add request size limit (10MB)
-	router.Use(middleware.RequestSizeLimit(10 * 1024 * 1024))
+	// Add request size limit from environment (default: 10MB)
+	maxSizeMBStr := os.Getenv("MAX_REQUEST_SIZE_MB")
+	maxSizeMB := 10 // Default
+	if maxSizeMBStr != "" {
+		if size, err := strconv.Atoi(maxSizeMBStr); err == nil && size > 0 {
+			maxSizeMB = size
+		}
+	}
+	router.Use(middleware.RequestSizeLimit(int64(maxSizeMB * 1024 * 1024)))
 
 	// Add CORS middleware
 	router.Use(corsMiddleware())
@@ -62,6 +84,8 @@ func NewAPIServer() *APIServer {
 		Router:       router,
 		UserService:  user.NewService(),
 		MangaService: manga.NewService(),
+		MALClient:    external.NewMALClient(),
+		JikanClient:  external.NewJikanClient(),
 		Port:         getPort(),
 	}
 
@@ -83,10 +107,55 @@ func getPort() string {
 // corsMiddleware adds CORS headers
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Credentials", "true")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Header("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+		// Get request origin
+		origin := c.Request.Header.Get("Origin")
+
+		// Get allowed origins from environment or use default
+		allowedOriginsStr := os.Getenv("CORS_ALLOW_ORIGINS")
+		if allowedOriginsStr == "" {
+			allowedOriginsStr = "*" // Default to allow all
+		}
+
+		// Determine which origin to allow
+		allowOrigin := ""
+		if allowedOriginsStr == "*" {
+			allowOrigin = "*"
+		} else {
+			// Split comma-separated origins and check if request origin is allowed
+			allowedOrigins := strings.Split(allowedOriginsStr, ",")
+			for _, allowed := range allowedOrigins {
+				allowed = strings.TrimSpace(allowed)
+				if allowed == origin {
+					allowOrigin = origin
+					break
+				}
+			}
+			// If origin not found in allowed list, don't set the header
+			if allowOrigin == "" && len(allowedOrigins) > 0 {
+				// For development, allow the first origin if origin is not in the list
+				allowOrigin = strings.TrimSpace(allowedOrigins[0])
+			}
+		}
+
+		// Get allowed methods from environment or use default
+		allowedMethods := os.Getenv("CORS_ALLOW_METHODS")
+		if allowedMethods == "" {
+			allowedMethods = "POST, OPTIONS, GET, PUT, DELETE"
+		}
+
+		// Get allowed headers from environment or use default
+		allowedHeaders := os.Getenv("CORS_ALLOW_HEADERS")
+		if allowedHeaders == "" {
+			allowedHeaders = "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With"
+		}
+
+		// Set CORS headers - only set one origin value
+		if allowOrigin != "" {
+			c.Header("Access-Control-Allow-Origin", allowOrigin)
+			c.Header("Access-Control-Allow-Credentials", "true")
+		}
+		c.Header("Access-Control-Allow-Headers", allowedHeaders)
+		c.Header("Access-Control-Allow-Methods", allowedMethods)
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -170,6 +239,21 @@ func (s *APIServer) setupRoutes() {
 			auth.POST("/login", s.login)
 		}
 
+		// Public manga browsing routes (no auth required)
+		publicManga := v1.Group("/manga")
+		{
+			publicManga.GET("/", s.searchManga)
+			publicManga.GET("/:id", s.getManga)
+			publicManga.GET("/genres", s.getGenres)
+			publicManga.GET("/popular", s.getPopularManga)
+			publicManga.GET("/stats", s.getMangaStats)
+
+			// MAL/Jikan API integration routes
+			publicManga.GET("/mal/search", s.searchMAL)
+			publicManga.GET("/mal/top", s.getTopMAL)
+			publicManga.GET("/mal/:mal_id", s.getMALManga)
+		}
+
 		// Protected routes
 		protected := v1.Group("/")
 		protected.Use(authMiddleware())
@@ -188,16 +272,9 @@ func (s *APIServer) setupRoutes() {
 				users.DELETE("/library/:manga_id", s.removeFromLibrary)
 			}
 
-			// Manga routes
+			// Admin routes for manga management
 			manga := protected.Group("/manga")
 			{
-				manga.GET("/", s.searchManga)
-				manga.GET("/:id", s.getManga)
-				manga.GET("/genres", s.getGenres)
-				manga.GET("/popular", s.getPopularManga)
-				manga.GET("/stats", s.getMangaStats)
-
-				// Admin routes for manga management
 				adminManga := manga.Group("/")
 				adminManga.Use(adminMiddleware())
 				{
@@ -664,6 +741,181 @@ func (s *APIServer) deleteManga(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Manga deleted successfully"})
 }
 
+// MAL/Jikan API handlers
+
+// searchMAL searches manga from MyAnimeList via Jikan API
+// searchMAL searches manga from MyAnimeList (tries official API first, falls back to Jikan)
+func (s *APIServer) searchMAL(c *gin.Context) {
+	query := c.Query("q")
+	if query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Search query is required"})
+		return
+	}
+
+	limit := 20
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	// Try official MAL API first
+	if s.MALClient.IsConfigured() {
+		malResult, err := s.MALClient.SearchManga(query, limit)
+		if err != nil {
+			log.Printf("Official MAL API search error: %v, falling back to Jikan", err)
+		} else {
+			// Convert official MAL data
+			mangaList := make([]external.MALMangaNode, 0, len(malResult.Data))
+			for _, item := range malResult.Data {
+				mangaList = append(mangaList, item.Node)
+			}
+			manga := external.ConvertMALListToManga(mangaList)
+
+			c.JSON(http.StatusOK, gin.H{
+				"data":   manga,
+				"total":  len(manga),
+				"limit":  limit,
+				"source": "official_mal",
+			})
+			return
+		}
+	}
+
+	// Fallback to Jikan API
+	page := 1
+	if pageStr := c.Query("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	if limit > 25 {
+		limit = 25 // Jikan has lower limit
+	}
+
+	jikanManga, err := s.JikanClient.SearchManga(query, page, limit)
+	if err != nil {
+		log.Printf("Jikan search error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search MyAnimeList"})
+		return
+	}
+
+	manga := external.ConvertJikanListToManga(jikanManga.Data)
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":   manga,
+		"total":  len(manga),
+		"page":   page,
+		"limit":  limit,
+		"source": "jikan",
+	})
+}
+
+// getTopMAL gets top manga from MyAnimeList (tries official API first, falls back to Jikan)
+func (s *APIServer) getTopMAL(c *gin.Context) {
+	limit := 20
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	// Try official MAL API first
+	if s.MALClient.IsConfigured() {
+		malResult, err := s.MALClient.GetMangaRanking("all", limit)
+		if err != nil {
+			log.Printf("Official MAL API ranking error: %v, falling back to Jikan", err)
+		} else {
+			// Convert official MAL data
+			mangaList := make([]external.MALMangaNode, 0, len(malResult.Data))
+			for _, item := range malResult.Data {
+				mangaList = append(mangaList, item.Node)
+			}
+			manga := external.ConvertMALListToManga(mangaList)
+
+			c.JSON(http.StatusOK, gin.H{
+				"data":   manga,
+				"total":  len(manga),
+				"limit":  limit,
+				"source": "official_mal",
+			})
+			return
+		}
+	}
+
+	// Fallback to Jikan API
+	page := 1
+	if pageStr := c.Query("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	if limit > 25 {
+		limit = 25 // Jikan has lower limit
+	}
+
+	jikanManga, err := s.JikanClient.GetTopManga(page, limit)
+	if err != nil {
+		log.Printf("Jikan top manga error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get top manga from MyAnimeList"})
+		return
+	}
+
+	manga := external.ConvertJikanListToManga(jikanManga.Data)
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":   manga,
+		"total":  len(manga),
+		"page":   page,
+		"limit":  limit,
+		"source": "jikan",
+	})
+}
+
+// getMALManga gets a specific manga from MyAnimeList (tries official API first, falls back to Jikan)
+func (s *APIServer) getMALManga(c *gin.Context) {
+	malIDStr := c.Param("mal_id")
+	malID, err := strconv.Atoi(malIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid MyAnimeList ID"})
+		return
+	}
+
+	// Try official MAL API first
+	if s.MALClient.IsConfigured() {
+		malManga, err := s.MALClient.GetMangaByID(malID)
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				// Try Jikan as fallback
+				log.Printf("Manga %d not found in official MAL API, trying Jikan", malID)
+			} else {
+				log.Printf("Official MAL API get manga error: %v, falling back to Jikan", err)
+			}
+		} else {
+			manga := external.ConvertMALToManga(malManga)
+			c.JSON(http.StatusOK, manga)
+			return
+		}
+	}
+
+	// Fallback to Jikan API
+	jikanManga, err := s.JikanClient.GetMangaByID(malID)
+	if err != nil {
+		if strings.Contains(err.Error(), "404") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Manga not found on MyAnimeList"})
+		} else {
+			log.Printf("Jikan get manga error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get manga from MyAnimeList"})
+		}
+		return
+	}
+
+	manga := external.ConvertJikanToManga(jikanManga)
+	c.JSON(http.StatusOK, manga)
+}
+
 // Start starts the HTTP server
 func (s *APIServer) Start() error {
 	log.Printf("Starting API server on port %s", s.Port)
@@ -909,22 +1161,82 @@ func (s *APIServer) validateSingleMangaData(manga models.Manga) error {
 }
 
 func main() {
+	// Load environment variables from .env file
+	// Try current directory first, then parent directory
+	if err := godotenv.Load(); err != nil {
+		if err := godotenv.Load("../../.env"); err != nil {
+			log.Println("Warning: .env file not found, using environment variables or defaults")
+		} else {
+			log.Println("Loaded environment variables from ../../.env file")
+		}
+	} else {
+		log.Println("Loaded environment variables from .env file")
+	}
+
 	// Initialize database
 	if err := database.InitDatabase(); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer database.Close()
 
+	// Print current working directory for debugging
+	if cwd, err := os.Getwd(); err == nil {
+		log.Printf("Current working directory: %s", cwd)
+	}
+
 	// Load manga data if not already loaded
+	// Try to get path from environment variable first
 	log.Println("Loading manga data...")
-	if err := utils.LoadMangaData("data/manga.json"); err != nil {
-		log.Printf("Warning: Failed to load manga data: %v", err)
+	dataFilePath := os.Getenv("MANGA_DATA_FILE")
+	if dataFilePath == "" {
+		dataFilePath = "data/manga.json" // Default
+	}
+
+	possiblePaths := []string{
+		dataFilePath,            // From environment or default
+		"data/manga.json",       // From mangahub root
+		"../../data/manga.json", // From cmd/api-server
+		"../data/manga.json",    // Alternative
+		"./data/manga.json",     // Current dir
+	}
+
+	loaded := false
+	for _, path := range possiblePaths {
+		log.Printf("Trying to load manga data from: %s", path)
+		if err := utils.LoadMangaData(path); err == nil {
+			log.Printf("Successfully loaded manga data from: %s", path)
+			loaded = true
+			break
+		} else {
+			log.Printf("Failed to load from %s: %v", path, err)
+		}
+	}
+
+	if !loaded {
+		log.Println("WARNING: No manga data loaded! API will return empty results.")
+		log.Println("Make sure manga.json exists in one of these locations:")
+		for _, path := range possiblePaths {
+			log.Printf("  - %s", path)
+		}
 	}
 
 	// Create and start server
 	server := NewAPIServer()
 
 	log.Println("MangaHub API Server starting...")
+	log.Printf("Server configuration:")
+	log.Printf("  - Port: %s", server.Port)
+	log.Printf("  - Gin Mode: %s", os.Getenv("GIN_MODE"))
+	log.Printf("  - CORS Origins: %s", os.Getenv("CORS_ALLOW_ORIGINS"))
+	log.Printf("  - Rate Limit: %s requests/min", os.Getenv("RATE_LIMIT_REQUESTS_PER_MINUTE"))
+
+	// Log MAL API configuration
+	if server.MALClient.IsConfigured() {
+		log.Printf("  - MyAnimeList: Official API (Client ID configured) ✓")
+	} else {
+		log.Printf("  - MyAnimeList: Jikan API (unofficial) - Configure MAL_CLIENT_ID for official API")
+	}
+
 	if err := server.Start(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}

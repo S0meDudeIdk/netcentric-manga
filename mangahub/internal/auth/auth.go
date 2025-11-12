@@ -5,14 +5,22 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// JWT secret key - in production, this should be loaded from environment variables
-var jwtSecret = []byte("your-secret-key-change-this-in-production")
+// getJWTSecret returns the JWT secret from environment or default
+func getJWTSecret() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		// Fallback to default (should be changed in production)
+		secret = "your-secret-key-change-this-in-production"
+	}
+	return []byte(secret)
+}
 
 // Claims represents the JWT claims
 type Claims struct {
@@ -45,7 +53,7 @@ func GenerateToken(userID, username, email string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	// Sign token with secret key
-	tokenString, err := token.SignedString(jwtSecret)
+	tokenString, err := token.SignedString(getJWTSecret())
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %w", err)
 	}
@@ -61,7 +69,7 @@ func ValidateToken(tokenString string) (*Claims, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return jwtSecret, nil
+		return getJWTSecret(), nil
 	})
 
 	if err != nil {
@@ -104,14 +112,4 @@ func GenerateUserID() (string, error) {
 		return "", fmt.Errorf("failed to generate user ID: %w", err)
 	}
 	return hex.EncodeToString(bytes), nil
-}
-
-// SetJWTSecret sets the JWT secret key (for configuration)
-func SetJWTSecret(secret string) {
-	jwtSecret = []byte(secret)
-}
-
-// GetJWTSecret returns the current JWT secret (for testing purposes)
-func GetJWTSecret() []byte {
-	return jwtSecret
 }
