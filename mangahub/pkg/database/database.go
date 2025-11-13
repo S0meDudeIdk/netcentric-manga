@@ -13,19 +13,46 @@ import (
 // DB holds the database connection
 var DB *sql.DB
 
+// findProjectRoot finds the project root by looking for go.mod
+func findProjectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	// Walk up the directory tree to find go.mod
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root without finding go.mod
+			return "", fmt.Errorf("could not find project root (go.mod)")
+		}
+		dir = parent
+	}
+}
+
 // InitDatabase initializes the SQLite database connection and creates tables
 func InitDatabase() error {
-	// Ensure data directory exists
-	dataDir := "data"
+	// Find project root (where go.mod is located)
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to find project root: %w", err)
+	}
+
+	// Ensure data directory exists at project root
+	dataDir := filepath.Join(projectRoot, "data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// Database file path
+	// Database file path - always at project root
 	dbPath := filepath.Join(dataDir, "mangahub.db")
+	log.Printf("Using database at: %s", dbPath)
 
 	// Open database connection
-	var err error
 	DB, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
