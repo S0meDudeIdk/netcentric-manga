@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -12,6 +13,8 @@ import (
 type NotificationServer struct {
 	Port    string
 	Clients []net.UDPAddr
+	conn    *net.UDPConn
+	mu      sync.Mutex
 }
 type Notification struct {
 	Type      string `json:"type"`
@@ -37,6 +40,7 @@ func (s *NotificationServer) Start() error {
 	if err != nil {
 		return fmt.Errorf("error starting UDP server:%w", err)
 	}
+	s.conn = conn
 	defer conn.Close()
 
 	log.Printf("UDP Notification Server listening on %s", s.Port)
@@ -68,6 +72,9 @@ func (s *NotificationServer) Start() error {
 }
 
 func (s *NotificationServer) RegisterClient(clientAddr net.UDPAddr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
 	for _, client := range s.Clients {
 		if client.String() == clientAddr.String() {
 			return
@@ -77,6 +84,9 @@ func (s *NotificationServer) RegisterClient(clientAddr net.UDPAddr) {
 }
 
 func (s *NotificationServer) UnregisterClient(clientAddr net.UDPAddr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
 	for i, client := range s.Clients {
 		if client.String() == clientAddr.String() {
 			s.Clients = append(s.Clients[:i], s.Clients[i+1:]...)
@@ -86,9 +96,16 @@ func (s *NotificationServer) UnregisterClient(clientAddr net.UDPAddr) {
 }
 
 func (s *NotificationServer) BroadcastNotification(notification Notification) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
 	if len(s.Clients) == 0 {
-		log.Println("No clients registerd for notifications")
+		log.Println("No clients registered for notifications")
 		return nil
+	}
+
+	if s.conn == nil {
+		return fmt.Errorf("UDP server connection not initialized")
 	}
 
 	if notification.Timestamp == 0 {
@@ -100,21 +117,10 @@ func (s *NotificationServer) BroadcastNotification(notification Notification) er
 		return fmt.Errorf("error marshaling notification: %w", err)
 	}
 
-	addr, err := net.ResolveUDPAddr("udp", s.Port)
-	if err != nil {
-		return fmt.Errorf("error resolving UDP address: %w", err)
-	}
-
-	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		return fmt.Errorf("error creating UDP connection: %w", err)
-	}
-	defer conn.Close()
-
 	// Send to all registered clients
 	failedClients := []int{}
 	for i, client := range s.Clients {
-		_, err := conn.WriteToUDP(data, &client)
+		_, err := s.conn.WriteToUDP(data, &client)
 		if err != nil {
 			log.Printf("Error sending notification to %s: %v", client.String(), err)
 			failedClients = append(failedClients, i)
@@ -152,5 +158,19 @@ func (s *NotificationServer) SendMangaUpdateNotification(mangaID, message string
 }
 
 func (s *NotificationServer) GetClientCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return len(s.Clients)
+}
+
+// Close gracefully shuts down the UDP server
+func (s *NotificationServer) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if s.conn != nil {
+		log.Println("Closing UDP server...")
+		return s.conn.Close()
+	}
+	return nil
 }

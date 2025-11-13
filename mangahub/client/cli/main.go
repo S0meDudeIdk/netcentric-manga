@@ -18,6 +18,7 @@ const (
 	baseURL = "http://localhost:8080"
 	apiURL  = baseURL + "/api/v1"
 	tcpAddr = "localhost:9000"
+	udpAddr = "localhost:8081"
 )
 
 // Color codes
@@ -41,6 +42,8 @@ type Client struct {
 	scanner    *bufio.Scanner
 	tcpConn    net.Conn
 	tcpEnabled bool
+	udpConn    *net.UDPConn
+	udpEnabled bool
 }
 
 // Manga represents a manga entry
@@ -127,6 +130,13 @@ func (c *Client) userMenu() {
 	} else {
 		fmt.Printf(colorYellow + "📡 Real-time sync: OFFLINE\n" + colorReset)
 	}
+	
+	// Show UDP notification status
+	if c.udpEnabled {
+		fmt.Printf(colorGreen + "🔔 Notifications: ENABLED\n" + colorReset)
+	} else {
+		fmt.Printf(colorYellow + "🔔 Notifications: OFFLINE\n" + colorReset)
+	}
 
 	fmt.Println("\n1. Browse Manga")
 	fmt.Println("2. Search Manga")
@@ -194,6 +204,9 @@ func (c *Client) login() {
 
 		// Try to connect to TCP server for real-time sync
 		c.connectTCP()
+		
+		// Try to connect to UDP server for notifications
+		c.connectUDP()
 	} else {
 		fmt.Println(colorRed + "❌ Login failed" + colorReset)
 	}
@@ -610,6 +623,15 @@ func (c *Client) logout() {
 		c.tcpConn = nil
 		c.tcpEnabled = false
 	}
+	
+	// Disconnect from UDP server
+	if c.udpConn != nil {
+		// Send UNREGISTER message
+		c.udpConn.Write([]byte("UNREGISTER"))
+		c.udpConn.Close()
+		c.udpConn = nil
+		c.udpEnabled = false
+	}
 
 	fmt.Println(colorGreen + "✅ Logged out successfully" + colorReset)
 }
@@ -740,5 +762,103 @@ func (c *Client) syncProgress(mangaID string, chapter int) {
 	if err != nil {
 		c.tcpEnabled = false
 		c.tcpConn = nil
+	}
+}
+
+// UDP Connection Methods
+
+// connectUDP attempts to connect to the UDP server for notifications
+func (c *Client) connectUDP() {
+	// Resolve UDP server address
+	serverAddr, err := net.ResolveUDPAddr("udp", udpAddr)
+	if err != nil {
+		fmt.Println(colorYellow + "⚠️  UDP notifications unavailable (server offline)" + colorReset)
+		c.udpEnabled = false
+		return
+	}
+
+	// Create UDP connection
+	conn, err := net.DialUDP("udp", nil, serverAddr)
+	if err != nil {
+		fmt.Println(colorYellow + "⚠️  UDP notifications unavailable (connection failed)" + colorReset)
+		c.udpEnabled = false
+		return
+	}
+
+	c.udpConn = conn
+
+	// Send REGISTER message to server
+	_, err = conn.Write([]byte("REGISTER"))
+	if err != nil {
+		fmt.Println(colorYellow + "⚠️  Failed to register for notifications" + colorReset)
+		conn.Close()
+		c.udpEnabled = false
+		return
+	}
+
+	// Wait for acknowledgment with timeout
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buffer := make([]byte, 1024)
+	n, err := conn.Read(buffer)
+	if err != nil || string(buffer[:n]) != "REGISTERED" {
+		fmt.Println(colorYellow + "⚠️  UDP registration failed" + colorReset)
+		conn.Close()
+		c.udpEnabled = false
+		return
+	}
+
+	c.udpEnabled = true
+	fmt.Println(colorGreen + "✅ Connected to notification server" + colorReset)
+
+	// Start listening for notifications in background
+	go c.listenUDPNotifications()
+}
+
+// listenUDPNotifications listens for chapter release and manga update notifications
+func (c *Client) listenUDPNotifications() {
+	if c.udpConn == nil {
+		return
+	}
+
+	buffer := make([]byte, 2048)
+	for {
+		// Remove read deadline for continuous listening
+		c.udpConn.SetReadDeadline(time.Time{})
+		
+		n, err := c.udpConn.Read(buffer)
+		if err != nil {
+			// Connection closed or error occurred
+			c.udpEnabled = false
+			c.udpConn = nil
+			return
+		}
+
+		// Parse notification
+		var notification map[string]interface{}
+		if err := json.Unmarshal(buffer[:n], &notification); err != nil {
+			continue
+		}
+
+		// Display notification to user
+		c.displayNotification(notification)
+	}
+}
+
+// displayNotification formats and displays a UDP notification
+func (c *Client) displayNotification(notification map[string]interface{}) {
+	notifType, _ := notification["type"].(string)
+	message, _ := notification["message"].(string)
+	mangaID, _ := notification["manga_id"].(string)
+
+	switch notifType {
+	case "chapter_release":
+		fmt.Printf("\n%s🔔 NEW CHAPTER! %s (Manga: %s)%s\n",
+			colorCyan, message, mangaID, colorReset)
+	case "manga_update":
+		fmt.Printf("\n%s📢 UPDATE: %s (Manga: %s)%s\n",
+			colorYellow, message, mangaID, colorReset)
+	default:
+		fmt.Printf("\n%s📬 Notification: %s%s\n",
+			colorBlue, message, colorReset)
 	}
 }
