@@ -99,13 +99,12 @@ func (s *ProgressSyncServer) handleBroadcast() {
 		message, err := json.Marshal(update)
 		if err != nil {
 			log.Printf("Error marshaling update: %v", err)
+			continue
 		}
 
 		message = append(message, '\n')
 
 		s.mu.Lock()
-		defer s.mu.Unlock()
-
 		for addr, conn := range s.Connections {
 			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			_, err := conn.Write(message)
@@ -115,8 +114,8 @@ func (s *ProgressSyncServer) handleBroadcast() {
 				delete(s.Connections, addr)
 			}
 		}
-
 		log.Printf("Broadcasted update to %d clients", len(s.Connections))
+		s.mu.Unlock()
 	}
 }
 
