@@ -1,23 +1,29 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
 	"mangahub/internal/auth"
 	"mangahub/internal/external"
 	"mangahub/internal/manga"
 	"mangahub/internal/user"
+	internalWebsocket "mangahub/internal/websocket"
 	"mangahub/pkg/database"
 	"mangahub/pkg/middleware"
 	"mangahub/pkg/models"
 	"mangahub/pkg/utils"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 )
 
@@ -29,6 +35,13 @@ type APIServer struct {
 	MALClient    *external.MALClient
 	JikanClient  *external.JikanClient
 	Port         string
+	// TCP client connection to broadcast progress updates
+	tcpConn net.Conn
+	tcpMu   sync.Mutex
+	// WebSocket chat hub
+	ChatHub *internalWebsocket.ChatHub
+	// WebSocket upgrader
+	upgrader websocket.Upgrader
 }
 
 // NewAPIServer creates a new API server instance
@@ -87,7 +100,23 @@ func NewAPIServer() *APIServer {
 		MALClient:    external.NewMALClient(),
 		JikanClient:  external.NewJikanClient(),
 		Port:         getPort(),
+		ChatHub:      internalWebsocket.NewChatHub(),
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+			CheckOrigin: func(r *http.Request) bool {
+				// Allow all origins for development
+				// In production, check against allowed origins
+				return true
+			},
+		},
 	}
+
+	// Start WebSocket chat hub
+	go server.ChatHub.Run()
+
+	// Connect to TCP server for broadcasting progress updates
+	go server.connectToTCPServer()
 
 	// Setup routes
 	server.setupRoutes()
@@ -169,24 +198,32 @@ func corsMiddleware() gin.HandlerFunc {
 // authMiddleware validates JWT tokens
 func authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get token from Authorization header
+		var token string
+
+		// Try to get token from Authorization header first
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
-			c.Abort()
-			return
+		if authHeader != "" {
+			// Extract token from "Bearer <token>"
+			tokenParts := strings.Split(authHeader, " ")
+			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
+				token = tokenParts[1]
+			}
 		}
 
-		// Extract token from "Bearer <token>"
-		tokenParts := strings.Split(authHeader, " ")
-		if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header format"})
+		// If no token in header, try query parameter (for WebSocket connections)
+		if token == "" {
+			token = c.Query("token")
+		}
+
+		// If still no token, return error
+		if token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization token required"})
 			c.Abort()
 			return
 		}
 
 		// Validate token
-		claims, err := auth.ValidateToken(tokenParts[1])
+		claims, err := auth.ValidateToken(token)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			c.Abort()
@@ -289,7 +326,13 @@ func (s *APIServer) setupRoutes() {
 					adminManga.DELETE("/bulk-delete", s.bulkDeleteManga)
 				}
 			}
+
+			// WebSocket chat endpoint (protected - requires authentication)
+			protected.GET("/ws/chat", s.handleWebSocketChat)
 		}
+
+		// WebSocket stats endpoint (public for monitoring)
+		v1.GET("/ws/stats", s.getWebSocketStats)
 	}
 }
 
@@ -418,6 +461,9 @@ func (s *APIServer) updateProgress(c *gin.Context) {
 		}
 		return
 	}
+
+	// Broadcast progress update to TCP server
+	go s.broadcastProgressUpdate(userID, req.MangaID, req.CurrentChapter)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Progress updated successfully"})
 }
@@ -1158,6 +1204,199 @@ func (s *APIServer) validateSingleMangaData(manga models.Manga) error {
 	}
 
 	return nil
+}
+
+// connectToTCPServer connects to the TCP progress sync server as a client
+func (s *APIServer) connectToTCPServer() {
+	tcpAddr := os.Getenv("TCP_SERVER_ADDR")
+	if tcpAddr == "" {
+		tcpAddr = "localhost:9000" // Default TCP server address
+	}
+
+	maxRetries := 10
+	retryDelay := 5 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		log.Printf("Attempting to connect to TCP server at %s (attempt %d/%d)", tcpAddr, i+1, maxRetries)
+
+		conn, err := net.Dial("tcp", tcpAddr)
+		if err != nil {
+			log.Printf("Failed to connect to TCP server: %v. Retrying in %v...", err, retryDelay)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		s.tcpMu.Lock()
+		s.tcpConn = conn
+		s.tcpMu.Unlock()
+
+		log.Printf("Successfully connected to TCP server at %s", tcpAddr)
+
+		// Keep connection alive and handle reconnection
+		go s.maintainTCPConnection(tcpAddr)
+		return
+	}
+
+	log.Printf("WARNING: Failed to connect to TCP server after %d attempts. Progress updates will not be broadcasted.", maxRetries)
+}
+
+// maintainTCPConnection monitors the TCP connection and reconnects if needed
+func (s *APIServer) maintainTCPConnection(tcpAddr string) {
+	reader := bufio.NewReader(s.tcpConn)
+	for {
+		// Read from connection to detect disconnection
+		_, err := reader.ReadByte()
+		if err != nil {
+			log.Printf("TCP connection lost: %v. Reconnecting...", err)
+			s.tcpMu.Lock()
+			if s.tcpConn != nil {
+				s.tcpConn.Close()
+				s.tcpConn = nil
+			}
+			s.tcpMu.Unlock()
+
+			// Reconnect
+			time.Sleep(5 * time.Second)
+			s.connectToTCPServer()
+			return
+		}
+	}
+}
+
+// broadcastProgressUpdate sends progress update to TCP server for broadcasting
+func (s *APIServer) broadcastProgressUpdate(userID, mangaID string, chapter int) {
+	s.tcpMu.Lock()
+	conn := s.tcpConn
+	s.tcpMu.Unlock()
+
+	if conn == nil {
+		log.Println("TCP connection not available, skipping broadcast")
+		return
+	}
+
+	// Create progress update message
+	type ProgressUpdate struct {
+		UserID    string `json:"user_id"`
+		MangaID   string `json:"manga_id"`
+		Chapter   int    `json:"chapter"`
+		Timestamp int64  `json:"timestamp"`
+	}
+
+	update := ProgressUpdate{
+		UserID:    userID,
+		MangaID:   mangaID,
+		Chapter:   chapter,
+		Timestamp: time.Now().Unix(),
+	}
+
+	// Marshal to JSON
+	data, err := json.Marshal(update)
+	if err != nil {
+		log.Printf("Failed to marshal progress update: %v", err)
+		return
+	}
+
+	// Send to TCP server (with newline delimiter)
+	data = append(data, '\n')
+
+	s.tcpMu.Lock()
+	defer s.tcpMu.Unlock()
+
+	if s.tcpConn != nil {
+		s.tcpConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		_, err = s.tcpConn.Write(data)
+		if err != nil {
+			log.Printf("Failed to send progress update to TCP server: %v", err)
+			s.tcpConn.Close()
+			s.tcpConn = nil
+		} else {
+			log.Printf("Broadcasted progress update to TCP server: User=%s, Manga=%s, Chapter=%d", userID, mangaID, chapter)
+		}
+	}
+}
+
+// handleWebSocketChat handles WebSocket chat connections
+func (s *APIServer) handleWebSocketChat(c *gin.Context) {
+	// Get user info from auth middleware
+	userID := c.GetString("user_id")
+	username := c.GetString("username")
+
+	if userID == "" || username == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	// Upgrade HTTP connection to WebSocket
+	conn, err := s.upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Printf("Failed to upgrade connection: %v", err)
+		return
+	}
+
+	// Create client connection
+	client := &internalWebsocket.ClientConnection{
+		Conn:     conn,
+		UserID:   userID,
+		Username: username,
+	}
+
+	// Register client with hub
+	s.ChatHub.Register <- client
+
+	// Start reading messages from this client
+	go s.readWebSocketMessages(client)
+}
+
+// readWebSocketMessages reads messages from a WebSocket client
+func (s *APIServer) readWebSocketMessages(client *internalWebsocket.ClientConnection) {
+	defer func() {
+		s.ChatHub.Unregister <- client.Conn
+	}()
+
+	// Configure read settings
+	client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	client.Conn.SetPongHandler(func(string) error {
+		client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	// Read messages loop
+	for {
+		var msg internalWebsocket.ChatMessage
+		err := client.Conn.ReadJSON(&msg)
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("WebSocket error: %v", err)
+			}
+			break
+		}
+
+		// Set message metadata
+		msg.UserID = client.UserID
+		msg.Username = client.Username
+		msg.Timestamp = time.Now().Unix()
+		msg.Type = "message"
+
+		// Validate message
+		if msg.Message == "" || len(msg.Message) > 1000 {
+			log.Printf("Invalid message from %s: empty or too long", client.Username)
+			continue
+		}
+
+		// Broadcast message to all clients
+		s.ChatHub.Broadcast <- msg
+	}
+}
+
+// getWebSocketStats returns WebSocket connection statistics
+func (s *APIServer) getWebSocketStats(c *gin.Context) {
+	stats := gin.H{
+		"connected_clients": s.ChatHub.GetClientCount(),
+		"connected_users":   s.ChatHub.GetConnectedUsers(),
+		"status":            "running",
+	}
+
+	c.JSON(http.StatusOK, stats)
 }
 
 func main() {
