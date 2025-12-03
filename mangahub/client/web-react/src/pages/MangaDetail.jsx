@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   Book, Star, Calendar, User, Tag, ArrowLeft, Plus, Check, 
-  TrendingUp, BookOpen, AlertCircle 
+  TrendingUp, BookOpen, AlertCircle, MessageCircle 
 } from 'lucide-react';
 import mangaService from '../services/mangaService';
 import userService from '../services/userService';
@@ -186,7 +186,16 @@ const MangaDetail = () => {
               </div>
 
               {/* Add to Library / Status */}
-              <div className="mt-6">
+              <div className="mt-6 space-y-3">
+                {/* ChatHub Button */}
+                <button
+                  onClick={() => navigate(`/chathub/${id}`)}
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition font-semibold shadow-lg"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                  <span>Join Chat Hub</span>
+                </button>
+
                 {!inLibrary ? (
                   <button
                     onClick={handleAddToLibrary}

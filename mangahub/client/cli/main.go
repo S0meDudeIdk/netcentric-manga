@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -35,15 +37,18 @@ const (
 
 // Client represents the MangaHub CLI client
 type Client struct {
-	Token      string
-	Username   string
-	Email      string
-	UserID     string
-	scanner    *bufio.Scanner
-	tcpConn    net.Conn
-	tcpEnabled bool
-	udpConn    *net.UDPConn
-	udpEnabled bool
+	Token       string
+	Username    string
+	Email       string
+	UserID      string
+	scanner     *bufio.Scanner
+	tcpConn     net.Conn
+	tcpEnabled  bool
+	udpConn     *net.UDPConn
+	udpEnabled  bool
+	wsConn      *websocket.Conn
+	wsEnabled   bool
+	currentRoom string
 }
 
 // Manga represents a manga entry
@@ -130,12 +135,19 @@ func (c *Client) userMenu() {
 	} else {
 		fmt.Printf(colorYellow + "📡 Real-time sync: OFFLINE\n" + colorReset)
 	}
-	
+
 	// Show UDP notification status
 	if c.udpEnabled {
 		fmt.Printf(colorGreen + "🔔 Notifications: ENABLED\n" + colorReset)
 	} else {
 		fmt.Printf(colorYellow + "🔔 Notifications: OFFLINE\n" + colorReset)
+	}
+
+	// Show WebSocket status
+	if c.wsEnabled {
+		fmt.Printf(colorGreen+"💬 Chat: CONNECTED (Room: %s)\n"+colorReset, c.currentRoom)
+	} else {
+		fmt.Printf(colorYellow + "💬 Chat: DISCONNECTED\n" + colorReset)
 	}
 
 	fmt.Println("\n1. Browse Manga")
@@ -204,7 +216,7 @@ func (c *Client) login() {
 
 		// Try to connect to TCP server for real-time sync
 		c.connectTCP()
-		
+
 		// Try to connect to UDP server for notifications
 		c.connectUDP()
 	} else {
@@ -423,12 +435,16 @@ func (c *Client) viewMangaDetails(manga Manga) {
 	fmt.Println(strings.Repeat("═", 60))
 
 	fmt.Println("\n1. Add to Library")
-	fmt.Println("2. Back")
+	fmt.Println("2. Join Chat Hub")
+	fmt.Println("3. Back")
 	fmt.Print("\nSelect an option: ")
 
 	choice := c.readInput()
-	if choice == "1" {
+	switch choice {
+	case "1":
 		c.addToLibrary(manga.ID)
+	case "2":
+		c.joinChatHub(manga.ID, manga.Title)
 	}
 }
 
@@ -623,7 +639,7 @@ func (c *Client) logout() {
 		c.tcpConn = nil
 		c.tcpEnabled = false
 	}
-	
+
 	// Disconnect from UDP server
 	if c.udpConn != nil {
 		// Send UNREGISTER message
@@ -631,6 +647,14 @@ func (c *Client) logout() {
 		c.udpConn.Close()
 		c.udpConn = nil
 		c.udpEnabled = false
+	}
+
+	// Disconnect from WebSocket
+	if c.wsConn != nil {
+		c.wsConn.Close()
+		c.wsConn = nil
+		c.wsEnabled = false
+		c.currentRoom = ""
 	}
 
 	fmt.Println(colorGreen + "✅ Logged out successfully" + colorReset)
@@ -824,7 +848,7 @@ func (c *Client) listenUDPNotifications() {
 	for {
 		// Remove read deadline for continuous listening
 		c.udpConn.SetReadDeadline(time.Time{})
-		
+
 		n, err := c.udpConn.Read(buffer)
 		if err != nil {
 			// Connection closed or error occurred
@@ -860,5 +884,207 @@ func (c *Client) displayNotification(notification map[string]interface{}) {
 	default:
 		fmt.Printf("\n%s📬 Notification: %s%s\n",
 			colorBlue, message, colorReset)
+	}
+}
+
+// WebSocket Methods
+
+// joinChatHub connects to a manga-specific chat room via WebSocket
+func (c *Client) joinChatHub(mangaID, mangaTitle string) {
+	// Disconnect from previous room if connected
+	if c.wsConn != nil {
+		c.wsConn.Close()
+		c.wsConn = nil
+		c.wsEnabled = false
+	}
+
+	fmt.Printf("\n%s💬 Joining Chat Hub: %s%s\n", colorCyan, mangaTitle, colorReset)
+
+	// Build WebSocket URL with room and token
+	wsURL := fmt.Sprintf("ws://localhost:8080/api/v1/ws/chat?token=%s&room=%s", c.Token, mangaID)
+
+	// Connect to WebSocket
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		fmt.Printf("%s❌ Failed to connect to chat: %s%s\n", colorRed, err.Error(), colorReset)
+		return
+	}
+
+	c.wsConn = conn
+	c.wsEnabled = true
+	c.currentRoom = mangaID
+
+	// Set up pong handler to respond to server pings
+	conn.SetPongHandler(func(appData string) error {
+		return nil
+	})
+
+	fmt.Printf("%s✅ Connected to chat hub!%s\n", colorGreen, colorReset)
+	fmt.Println(colorYellow + "\nChat Commands:" + colorReset)
+	fmt.Println("  - Type a message and press Enter to send")
+	fmt.Println("  - Type '/exit' to leave the chat")
+	fmt.Println("  - Type '/users' to see online users")
+	fmt.Println()
+
+	// Start listening for messages in background
+	go c.listenWebSocketMessages()
+
+	// Start chat loop
+	c.chatLoop()
+}
+
+// listenWebSocketMessages listens for incoming WebSocket messages
+func (c *Client) listenWebSocketMessages() {
+	if c.wsConn == nil {
+		return
+	}
+
+	// Set ping handler to automatically respond with pong
+	c.wsConn.SetPingHandler(func(appData string) error {
+		err := c.wsConn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(10*time.Second))
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	for {
+		var msg map[string]interface{}
+		err := c.wsConn.ReadJSON(&msg)
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				fmt.Printf("\n%s❌ Connection lost: %s%s\n", colorRed, err.Error(), colorReset)
+			}
+			c.wsEnabled = false
+			return
+		}
+
+		c.displayChatMessage(msg)
+	}
+}
+
+// displayChatMessage formats and displays a chat message
+func (c *Client) displayChatMessage(msg map[string]interface{}) {
+	msgType, _ := msg["type"].(string)
+	username, _ := msg["username"].(string)
+	userID, _ := msg["user_id"].(string)
+	message, _ := msg["message"].(string)
+	timestamp, _ := msg["timestamp"].(float64)
+
+	// Format timestamp
+	t := time.Unix(int64(timestamp), 0)
+	timeStr := t.Format("15:04:05")
+
+	switch msgType {
+	case "message":
+		// Different color for own messages
+		if userID == c.UserID {
+			fmt.Printf("[%s] %s%s%s: %s\n", timeStr, colorGreen, username, colorReset, message)
+		} else {
+			fmt.Printf("[%s] %s%s%s: %s\n", timeStr, colorCyan, username, colorReset, message)
+		}
+
+	case "join":
+		fmt.Printf("%s→ %s joined the chat%s\n", colorYellow, username, colorReset)
+
+	case "leave":
+		fmt.Printf("%s← %s left the chat%s\n", colorYellow, username, colorReset)
+
+	case "user_list":
+		if users, ok := msg["users"].([]interface{}); ok {
+			fmt.Printf("\n%s👥 Online Users (%d):%s\n", colorCyan, len(users), colorReset)
+			for _, u := range users {
+				if userMap, ok := u.(map[string]interface{}); ok {
+					uname, _ := userMap["username"].(string)
+					uid, _ := userMap["user_id"].(string)
+					if uid == c.UserID {
+						fmt.Printf("  %s• %s (you)%s\n", colorGreen, uname, colorReset)
+					} else {
+						fmt.Printf("  • %s\n", uname)
+					}
+				}
+			}
+			fmt.Println()
+		}
+	}
+}
+
+// chatLoop handles user input in the chat
+func (c *Client) chatLoop() {
+	chatScanner := bufio.NewScanner(os.Stdin)
+
+	for c.wsEnabled {
+		fmt.Print(colorGreen + "> " + colorReset)
+
+		if !chatScanner.Scan() {
+			break
+		}
+
+		input := strings.TrimSpace(chatScanner.Text())
+
+		if input == "" {
+			continue
+		}
+
+		// Handle commands
+		if strings.HasPrefix(input, "/") {
+			c.handleChatCommand(input)
+			continue
+		}
+
+		// Send message
+		c.sendChatMessage(input)
+	}
+}
+
+// handleChatCommand processes chat commands
+func (c *Client) handleChatCommand(command string) {
+	switch command {
+	case "/exit":
+		fmt.Printf("%s← Leaving chat hub...%s\n", colorYellow, colorReset)
+		if c.wsConn != nil {
+			c.wsConn.Close()
+			c.wsConn = nil
+		}
+		c.wsEnabled = false
+		c.currentRoom = ""
+
+	case "/users":
+		// Request user list
+		msg := map[string]interface{}{
+			"type": "get_users",
+		}
+		if err := c.wsConn.WriteJSON(msg); err != nil {
+			fmt.Printf("%s❌ Failed to request user list%s\n", colorRed, colorReset)
+		}
+
+	default:
+		fmt.Printf("%s❌ Unknown command. Available: /exit, /users%s\n", colorRed, colorReset)
+	}
+}
+
+// sendChatMessage sends a message to the chat room
+func (c *Client) sendChatMessage(message string) {
+	if !c.wsEnabled || c.wsConn == nil {
+		fmt.Printf("%s❌ Not connected to chat%s\n", colorRed, colorReset)
+		return
+	}
+
+	// Validate message length
+	if len(message) > 1000 {
+		fmt.Printf("%s❌ Message too long (max 1000 characters)%s\n", colorRed, colorReset)
+		return
+	}
+
+	msg := map[string]interface{}{
+		"type":    "message",
+		"message": message,
+		"room":    c.currentRoom,
+	}
+
+	err := c.wsConn.WriteJSON(msg)
+	if err != nil {
+		fmt.Printf("%s❌ Failed to send message: %s%s\n", colorRed, err.Error(), colorReset)
+		c.wsEnabled = false
 	}
 }
