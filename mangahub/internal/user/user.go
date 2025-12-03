@@ -507,3 +507,31 @@ func (s *Service) GetReadingRecommendations(userID string, limit int) ([]models.
 
 	return recommendations, nil
 }
+
+// GetUserProgress retrieves user's reading progress for a specific manga (for TCP endpoint)
+func (s *Service) GetUserProgress(userID, mangaID string) (*models.UserProgress, error) {
+	query := `
+		SELECT user_id, manga_id, current_chapter, status, last_updated
+		FROM user_progress
+		WHERE user_id = ? AND manga_id = ?
+	`
+
+	var progress models.UserProgress
+	err := s.db.QueryRow(query, userID, mangaID).Scan(
+		&progress.UserID,
+		&progress.MangaID,
+		&progress.CurrentChapter,
+		&progress.Status,
+		&progress.LastUpdated,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // User hasn't started reading yet
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user progress: %w", err)
+	}
+
+	return &progress, nil
+}

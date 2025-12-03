@@ -9,6 +9,7 @@ import Browse from './pages/Browse';
 import Library from './pages/Library';
 import Search from './pages/Search';
 import MangaDetail from './pages/MangaDetail';
+import ChatHub from './pages/ChatHub';
 import authService from './services/authService';
 import './App.css';
 
@@ -35,6 +36,11 @@ function App() {
             <Route path="/library" element={
               <ProtectedRoute>
                 <Library />
+              </ProtectedRoute>
+            } />
+            <Route path="/chathub/:mangaId" element={
+              <ProtectedRoute>
+                <ChatHub />
               </ProtectedRoute>
             } />
           </Routes>

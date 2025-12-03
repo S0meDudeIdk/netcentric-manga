@@ -38,8 +38,8 @@ type APIServer struct {
 	// TCP client connection to broadcast progress updates
 	tcpConn net.Conn
 	tcpMu   sync.Mutex
-	// WebSocket chat hub
-	ChatHub *internalWebsocket.ChatHub
+	// WebSocket room hub for manga-specific chats
+	RoomHub *internalWebsocket.RoomHub
 	// WebSocket upgrader
 	upgrader websocket.Upgrader
 }
@@ -100,7 +100,7 @@ func NewAPIServer() *APIServer {
 		MALClient:    external.NewMALClient(),
 		JikanClient:  external.NewJikanClient(),
 		Port:         getPort(),
-		ChatHub:      internalWebsocket.NewChatHub(),
+		RoomHub:      internalWebsocket.NewRoomHub(),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -113,7 +113,8 @@ func NewAPIServer() *APIServer {
 	}
 
 	// Start WebSocket chat hub
-	go server.ChatHub.Run()
+	// WebSocket rooms are created on demand when users join
+	log.Println("WebSocket RoomHub initialized")
 
 	// Connect to TCP server for broadcasting progress updates
 	go server.connectToTCPServer()
@@ -1326,6 +1327,13 @@ func (s *APIServer) handleWebSocketChat(c *gin.Context) {
 		return
 	}
 
+	// Get room ID from query parameter (manga ID)
+	roomID := c.Query("room")
+	if roomID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Room ID required"})
+		return
+	}
+
 	// Upgrade HTTP connection to WebSocket
 	conn, err := s.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -1333,32 +1341,57 @@ func (s *APIServer) handleWebSocketChat(c *gin.Context) {
 		return
 	}
 
+	// Get or create room
+	room := s.RoomHub.GetOrCreateRoom(roomID)
+
 	// Create client connection
 	client := &internalWebsocket.ClientConnection{
 		Conn:     conn,
 		UserID:   userID,
 		Username: username,
+		Room:     roomID,
 	}
 
-	// Register client with hub
-	s.ChatHub.Register <- client
+	// Register client with room
+	room.Register <- client
 
 	// Start reading messages from this client
-	go s.readWebSocketMessages(client)
+	go s.readWebSocketMessages(client, room)
 }
 
 // readWebSocketMessages reads messages from a WebSocket client
-func (s *APIServer) readWebSocketMessages(client *internalWebsocket.ClientConnection) {
+func (s *APIServer) readWebSocketMessages(client *internalWebsocket.ClientConnection, room *internalWebsocket.ChatRoom) {
 	defer func() {
-		s.ChatHub.Unregister <- client.Conn
+		room.Unregister <- client.Conn
 	}()
 
-	// Configure read settings
-	client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	// Ping interval and timeouts
+	const (
+		pongWait   = 120 * time.Second   // Time allowed to read the next pong message
+		pingPeriod = (pongWait * 9) / 10 // Send pings with this period (must be less than pongWait)
+		writeWait  = 10 * time.Second    // Time allowed to write a message
+	)
+
+	// Configure read settings with extended deadline
+	client.Conn.SetReadDeadline(time.Now().Add(pongWait))
 	client.Conn.SetPongHandler(func(string) error {
-		client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		client.Conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
+
+	// Start ping ticker to keep connection alive
+	pingTicker := time.NewTicker(pingPeriod)
+	defer pingTicker.Stop()
+
+	// Start goroutine to send periodic pings
+	go func() {
+		for range pingTicker.C {
+			client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}()
 
 	// Read messages loop
 	for {
@@ -1371,11 +1404,15 @@ func (s *APIServer) readWebSocketMessages(client *internalWebsocket.ClientConnec
 			break
 		}
 
+		// Reset read deadline on every message
+		client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+
 		// Set message metadata
 		msg.UserID = client.UserID
 		msg.Username = client.Username
 		msg.Timestamp = time.Now().Unix()
 		msg.Type = "message"
+		msg.Room = client.Room
 
 		// Validate message
 		if msg.Message == "" || len(msg.Message) > 1000 {
@@ -1383,16 +1420,39 @@ func (s *APIServer) readWebSocketMessages(client *internalWebsocket.ClientConnec
 			continue
 		}
 
-		// Broadcast message to all clients
-		s.ChatHub.Broadcast <- msg
+		// Broadcast message to all clients in room
+		room.Broadcast <- msg
 	}
 }
 
 // getWebSocketStats returns WebSocket connection statistics
 func (s *APIServer) getWebSocketStats(c *gin.Context) {
+	roomID := c.Query("room")
+
+	if roomID == "" {
+		// Return global stats
+		totalRooms, totalClients := s.RoomHub.GetGlobalStats()
+
+		stats := gin.H{
+			"total_rooms":   totalRooms,
+			"total_clients": totalClients,
+			"status":        "running",
+		}
+		c.JSON(http.StatusOK, stats)
+		return
+	}
+
+	// Return specific room stats
+	room := s.RoomHub.GetRoom(roomID)
+	if room == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Room not found"})
+		return
+	}
+
 	stats := gin.H{
-		"connected_clients": s.ChatHub.GetClientCount(),
-		"connected_users":   s.ChatHub.GetConnectedUsers(),
+		"room_id":           roomID,
+		"connected_clients": room.GetClientCount(),
+		"connected_users":   room.GetConnectedUsers(),
 		"status":            "running",
 	}
 
