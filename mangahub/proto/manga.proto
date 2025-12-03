@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package manga;
+
+option go_package = "mangahub/proto/manga";
+
+// MangaService provides gRPC methods for manga operations
+service MangaService {
+  // GetManga retrieves a single manga by ID
+  rpc GetManga(GetMangaRequest) returns (MangaResponse);
+  
+  // SearchManga searches for manga by query
+  rpc SearchManga(SearchRequest) returns (SearchResponse);
+  
+  // UpdateProgress updates user's reading progress
+  rpc UpdateProgress(ProgressRequest) returns (ProgressResponse);
+}
+
+// GetMangaRequest contains the manga ID to retrieve
+message GetMangaRequest {
+  string id = 1;
+}
+
+// MangaResponse contains a single manga
+message MangaResponse {
+  Manga manga = 1;
+  string error = 2;
+}
+
+// SearchRequest contains search parameters
+message SearchRequest {
+  string query = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+// SearchResponse contains search results
+message SearchResponse {
+  repeated Manga manga = 1;
+  int32 total = 2;
+  string error = 3;
+}
+
+// ProgressRequest contains progress update data
+message ProgressRequest {
+  string user_id = 1;
+  string manga_id = 2;
+  int32 current_chapter = 3;
+  string status = 4; // reading, completed, plan_to_read, dropped
+}
+
+// ProgressResponse contains the update result
+message ProgressResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+}
+
+// Manga represents a manga entity
+message Manga {
+  string id = 1;
+  string title = 2;
+  string author = 3;
+  repeated string genres = 4;
+  string status = 5;
+  int32 total_chapters = 6;
+  string description = 7;
+  string cover_url = 8;
+  int32 publication_year = 9;
+  double rating = 10;
+  string created_at = 11;
+}
