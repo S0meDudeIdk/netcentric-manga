@@ -36,7 +36,10 @@ const userService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error fetching library:', error);
+      // Don't log 401 errors (unauthenticated users)
+      if (error.response?.status !== 401) {
+        console.error('Error fetching library:', error);
+      }
       throw error.response?.data || error;
     }
   },

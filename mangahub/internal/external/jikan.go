@@ -194,6 +194,11 @@ func (c *JikanClient) respectRateLimit() {
 
 // SearchManga searches for manga by query
 func (c *JikanClient) SearchManga(query string, page int, limit int) (*JikanMangaResponse, error) {
+	return c.SearchMangaWithSort(query, page, limit, "popularity", "asc")
+}
+
+// SearchMangaWithSort searches for manga by query with sorting options
+func (c *JikanClient) SearchMangaWithSort(query string, page int, limit int, orderBy string, sort string) (*JikanMangaResponse, error) {
 	c.respectRateLimit()
 
 	if limit <= 0 {
@@ -210,8 +215,13 @@ func (c *JikanClient) SearchManga(query string, page int, limit int) (*JikanMang
 	params.Add("q", query)
 	params.Add("page", fmt.Sprintf("%d", page))
 	params.Add("limit", fmt.Sprintf("%d", limit))
-	params.Add("order_by", "popularity")
-	params.Add("sort", "asc")
+
+	if orderBy != "" {
+		params.Add("order_by", orderBy)
+	}
+	if sort != "" {
+		params.Add("sort", sort)
+	}
 
 	url := fmt.Sprintf("%s/manga?%s", c.BaseURL, params.Encode())
 
@@ -263,6 +273,13 @@ func (c *JikanClient) GetMangaByID(malID int) (*JikanManga, error) {
 
 // GetTopManga retrieves top manga from MAL
 func (c *JikanClient) GetTopManga(page int, limit int) (*JikanMangaResponse, error) {
+	return c.GetMangaWithSort(page, limit, "", "")
+}
+
+// GetMangaWithSort retrieves manga with sorting options
+// orderBy: "mal_id", "title", "start_date", "end_date", "chapters", "volumes", "score", "scored_by", "rank", "popularity", "members", "favorites"
+// sort: "asc" or "desc"
+func (c *JikanClient) GetMangaWithSort(page int, limit int, orderBy string, sort string) (*JikanMangaResponse, error) {
 	c.respectRateLimit()
 
 	if limit <= 0 {
@@ -279,11 +296,26 @@ func (c *JikanClient) GetTopManga(page int, limit int) (*JikanMangaResponse, err
 	params.Add("page", fmt.Sprintf("%d", page))
 	params.Add("limit", fmt.Sprintf("%d", limit))
 
-	url := fmt.Sprintf("%s/top/manga?%s", c.BaseURL, params.Encode())
+	// Add sorting parameters if provided
+	if orderBy != "" {
+		params.Add("order_by", orderBy)
+	}
+	if sort != "" {
+		params.Add("sort", sort)
+	}
+
+	// Use /manga endpoint instead of /top/manga for more flexibility with sorting
+	endpoint := "/manga"
+	if orderBy == "" && sort == "" {
+		// Use /top/manga for default behavior (sorted by popularity)
+		endpoint = "/top/manga"
+	}
+
+	url := fmt.Sprintf("%s%s?%s", c.BaseURL, endpoint, params.Encode())
 
 	resp, err := c.HTTPClient.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch top manga: %w", err)
+		return nil, fmt.Errorf("failed to fetch manga: %w", err)
 	}
 	defer resp.Body.Close()
 

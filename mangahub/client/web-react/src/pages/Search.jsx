@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Search as SearchIcon, Book, X, Globe } from 'lucide-react';
+import { Search as SearchIcon, Book, X } from 'lucide-react';
 import mangaService from '../services/mangaService';
 import MangaCard from '../components/MangaCard';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -11,7 +11,6 @@ const Search = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
-  const [dataSource, setDataSource] = useState('mal'); // 'local' or 'mal'
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -25,14 +24,8 @@ const Search = () => {
     setHasSearched(true);
 
     try {
-      let data;
-      if (dataSource === 'mal') {
-        data = await mangaService.searchMAL(query);
-        setResults(data.data || []);
-      } else {
-        data = await mangaService.searchManga(query);
-        setResults(data.manga || []);
-      }
+      const data = await mangaService.searchMAL(query);
+      setResults(data.data || []);
     } catch (err) {
       console.error('Search error:', err);
       setError(err.message);
@@ -58,42 +51,12 @@ const Search = () => {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <SearchIcon className="w-8 h-8 text-blue-600" />
-              <h1 className="text-4xl font-bold text-gray-900">Search Manga</h1>
-            </div>
-            
-            {/* Data Source Toggle */}
-            <div className="flex items-center gap-2 bg-white rounded-lg shadow-md p-2">
-              <button
-                onClick={() => setDataSource('mal')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                  dataSource === 'mal'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <Globe className="w-4 h-4" />
-                MyAnimeList
-              </button>
-              <button
-                onClick={() => setDataSource('local')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                  dataSource === 'local'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <Book className="w-4 h-4" />
-                Local
-              </button>
-            </div>
+          <div className="flex items-center gap-3 mb-4">
+            <SearchIcon className="w-8 h-8 text-blue-600" />
+            <h1 className="text-4xl font-bold text-gray-900">Search Manga</h1>
           </div>
           <p className="text-gray-600">
-            {dataSource === 'mal' 
-              ? 'Search by title, author, or genre from MyAnimeList' 
-              : 'Search our local manga collection'}
+            Search by title, author, or genre from MyAnimeList
           </p>
         </motion.div>
 

@@ -290,6 +290,7 @@ func (s *APIServer) setupRoutes() {
 			publicManga.GET("/mal/search", s.searchMAL)
 			publicManga.GET("/mal/top", s.getTopMAL)
 			publicManga.GET("/mal/:mal_id", s.getMALManga)
+			publicManga.GET("/mal/:mal_id/recommendations", s.getMALRecommendations)
 		}
 
 		// Protected routes
@@ -806,30 +807,56 @@ func (s *APIServer) searchMAL(c *gin.Context) {
 		}
 	}
 
-	// Try official MAL API first
-	if s.MALClient.IsConfigured() {
-		malResult, err := s.MALClient.SearchManga(query, limit)
-		if err != nil {
-			log.Printf("Official MAL API search error: %v, falling back to Jikan", err)
-		} else {
-			// Convert official MAL data
-			mangaList := make([]external.MALMangaNode, 0, len(malResult.Data))
-			for _, item := range malResult.Data {
-				mangaList = append(mangaList, item.Node)
-			}
-			manga := external.ConvertMALListToManga(mangaList)
+	// For pagination-heavy operations like searching, prefer Jikan API as it provides
+	// complete pagination info (total count, last_visible_page, etc.)
+	// Official MAL API only provides next/previous links without totals
 
-			c.JSON(http.StatusOK, gin.H{
-				"data":   manga,
-				"total":  len(manga),
-				"limit":  limit,
-				"source": "official_mal",
-			})
-			return
-		}
-	}
+	// Commented out MAL API to prefer Jikan for better pagination
+	// if s.MALClient.IsConfigured() {
+	// 	// Get page parameter for offset calculation
+	// 	page := 1
+	// 	if pageStr := c.Query("page"); pageStr != "" {
+	// 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+	// 			page = p
+	// 		}
+	// 	}
+	//
+	// 	// Calculate offset from page number
+	// 	offset := (page - 1) * limit
+	//
+	// 	malResult, err := s.MALClient.SearchManga(query, limit, offset)
+	// 	if err != nil {
+	// 		log.Printf("Official MAL API search error: %v, falling back to Jikan", err)
+	// 	} else {
+	// 		// Convert official MAL data
+	// 		mangaList := make([]external.MALMangaNode, 0, len(malResult.Data))
+	// 		for _, item := range malResult.Data {
+	// 			mangaList = append(mangaList, item.Node)
+	// 		}
+	// 		manga := external.ConvertMALListToManga(mangaList)
+	//
+	// 		// MAL API doesn't provide total count in search, but has next/previous
+	// 		hasNext := malResult.Paging.Next != ""
+	// 		c.JSON(http.StatusOK, gin.H{
+	// 			"data":   manga,
+	// 			"total":  len(manga),
+	// 			"limit":  limit,
+	// 			"page":   page,
+	// 			"source": "official_mal",
+	// 			"pagination": gin.H{
+	// 				"has_next_page": hasNext,
+	// 				"current_page":  page,
+	// 				"items": gin.H{
+	// 					"count":    len(manga),
+	// 					"per_page": limit,
+	// 				},
+	// 			},
+	// 		})
+	// 		return
+	// 	}
+	// }
 
-	// Fallback to Jikan API
+	// Use Jikan API for complete pagination support
 	page := 1
 	if pageStr := c.Query("page"); pageStr != "" {
 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
@@ -841,7 +868,19 @@ func (s *APIServer) searchMAL(c *gin.Context) {
 		limit = 25 // Jikan has lower limit
 	}
 
-	jikanManga, err := s.JikanClient.SearchManga(query, page, limit)
+	// Get sort parameters from query
+	orderBy := c.Query("order_by")
+	sort := c.Query("sort")
+
+	var jikanManga *external.JikanMangaResponse
+	var err error
+
+	if orderBy != "" || sort != "" {
+		jikanManga, err = s.JikanClient.SearchMangaWithSort(query, page, limit, orderBy, sort)
+	} else {
+		jikanManga, err = s.JikanClient.SearchManga(query, page, limit)
+	}
+
 	if err != nil {
 		log.Printf("Jikan search error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search MyAnimeList"})
@@ -856,6 +895,16 @@ func (s *APIServer) searchMAL(c *gin.Context) {
 		"page":   page,
 		"limit":  limit,
 		"source": "jikan",
+		"pagination": gin.H{
+			"last_visible_page": jikanManga.Pagination.LastVisiblePage,
+			"has_next_page":     jikanManga.Pagination.HasNextPage,
+			"current_page":      jikanManga.Pagination.CurrentPage,
+			"items": gin.H{
+				"count":    jikanManga.Pagination.Items.Count,
+				"total":    jikanManga.Pagination.Items.Total,
+				"per_page": jikanManga.Pagination.Items.PerPage,
+			},
+		},
 	})
 }
 
@@ -868,30 +917,56 @@ func (s *APIServer) getTopMAL(c *gin.Context) {
 		}
 	}
 
-	// Try official MAL API first
-	if s.MALClient.IsConfigured() {
-		malResult, err := s.MALClient.GetMangaRanking("all", limit)
-		if err != nil {
-			log.Printf("Official MAL API ranking error: %v, falling back to Jikan", err)
-		} else {
-			// Convert official MAL data
-			mangaList := make([]external.MALMangaNode, 0, len(malResult.Data))
-			for _, item := range malResult.Data {
-				mangaList = append(mangaList, item.Node)
-			}
-			manga := external.ConvertMALListToManga(mangaList)
+	// For pagination-heavy operations like browsing, prefer Jikan API as it provides
+	// complete pagination info (total count, last_visible_page, etc.)
+	// Official MAL API only provides next/previous links without totals
 
-			c.JSON(http.StatusOK, gin.H{
-				"data":   manga,
-				"total":  len(manga),
-				"limit":  limit,
-				"source": "official_mal",
-			})
-			return
-		}
-	}
+	// Commented out MAL API to prefer Jikan for better pagination
+	// if s.MALClient.IsConfigured() {
+	// 	// Get page parameter for offset calculation
+	// 	page := 1
+	// 	if pageStr := c.Query("page"); pageStr != "" {
+	// 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+	// 			page = p
+	// 		}
+	// 	}
+	//
+	// 	// Calculate offset from page number
+	// 	offset := (page - 1) * limit
+	//
+	// 	malResult, err := s.MALClient.GetMangaRanking("all", limit, offset)
+	// 	if err != nil {
+	// 		log.Printf("Official MAL API ranking error: %v, falling back to Jikan", err)
+	// 	} else {
+	// 		// Convert official MAL data
+	// 		mangaList := make([]external.MALMangaNode, 0, len(malResult.Data))
+	// 		for _, item := range malResult.Data {
+	// 			mangaList = append(mangaList, item.Node)
+	// 		}
+	// 		manga := external.ConvertMALListToManga(mangaList)
+	//
+	// 		// MAL API doesn't provide total count in ranking, but has next/previous
+	// 		hasNext := malResult.Paging.Next != ""
+	// 		c.JSON(http.StatusOK, gin.H{
+	// 			"data":   manga,
+	// 			"total":  len(manga),
+	// 			"limit":  limit,
+	// 			"page":   page,
+	// 			"source": "official_mal",
+	// 			"pagination": gin.H{
+	// 				"has_next_page": hasNext,
+	// 				"current_page":  page,
+	// 				"items": gin.H{
+	// 					"count":    len(manga),
+	// 					"per_page": limit,
+	// 				},
+	// 			},
+	// 		})
+	// 		return
+	// 	}
+	// }
 
-	// Fallback to Jikan API
+	// Use Jikan API for complete pagination support
 	page := 1
 	if pageStr := c.Query("page"); pageStr != "" {
 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
@@ -903,10 +978,22 @@ func (s *APIServer) getTopMAL(c *gin.Context) {
 		limit = 25 // Jikan has lower limit
 	}
 
-	jikanManga, err := s.JikanClient.GetTopManga(page, limit)
+	// Get sort parameters from query
+	orderBy := c.Query("order_by")
+	sort := c.Query("sort")
+
+	var jikanManga *external.JikanMangaResponse
+	var err error
+
+	if orderBy != "" || sort != "" {
+		jikanManga, err = s.JikanClient.GetMangaWithSort(page, limit, orderBy, sort)
+	} else {
+		jikanManga, err = s.JikanClient.GetTopManga(page, limit)
+	}
+
 	if err != nil {
-		log.Printf("Jikan top manga error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get top manga from MyAnimeList"})
+		log.Printf("Jikan manga error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get manga from MyAnimeList"})
 		return
 	}
 
@@ -918,6 +1005,16 @@ func (s *APIServer) getTopMAL(c *gin.Context) {
 		"page":   page,
 		"limit":  limit,
 		"source": "jikan",
+		"pagination": gin.H{
+			"last_visible_page": jikanManga.Pagination.LastVisiblePage,
+			"has_next_page":     jikanManga.Pagination.HasNextPage,
+			"current_page":      jikanManga.Pagination.CurrentPage,
+			"items": gin.H{
+				"count":    jikanManga.Pagination.Items.Count,
+				"total":    jikanManga.Pagination.Items.Total,
+				"per_page": jikanManga.Pagination.Items.PerPage,
+			},
+		},
 	})
 }
 
@@ -961,6 +1058,36 @@ func (s *APIServer) getMALManga(c *gin.Context) {
 
 	manga := external.ConvertJikanToManga(jikanManga)
 	c.JSON(http.StatusOK, manga)
+}
+
+// Get MAL manga recommendations
+func (s *APIServer) getMALRecommendations(c *gin.Context) {
+	malIDStr := c.Param("mal_id")
+	malID, err := strconv.Atoi(malIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid MyAnimeList ID"})
+		return
+	}
+
+	// Fetch recommendations from Jikan API
+	recommendations, err := s.JikanClient.GetMangaRecommendations(malID)
+	if err != nil {
+		log.Printf("Jikan get recommendations error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get recommendations from MyAnimeList"})
+		return
+	}
+
+	// Convert to our manga format
+	mangaList := make([]*models.Manga, 0, len(recommendations))
+	for _, rec := range recommendations {
+		manga := external.ConvertJikanToManga(&rec)
+		mangaList = append(mangaList, manga)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data":  mangaList,
+		"count": len(mangaList),
+	})
 }
 
 // Start starts the HTTP server
@@ -1214,15 +1341,19 @@ func (s *APIServer) connectToTCPServer() {
 		tcpAddr = "localhost:9000" // Default TCP server address
 	}
 
-	maxRetries := 10
-	retryDelay := 5 * time.Second
+	maxRetries := 3
+	retryDelay := 2 * time.Second
 
 	for i := 0; i < maxRetries; i++ {
-		log.Printf("Attempting to connect to TCP server at %s (attempt %d/%d)", tcpAddr, i+1, maxRetries)
+		if i == 0 {
+			log.Printf("Attempting to connect to TCP server at %s...", tcpAddr)
+		}
 
 		conn, err := net.Dial("tcp", tcpAddr)
 		if err != nil {
-			log.Printf("Failed to connect to TCP server: %v. Retrying in %v...", err, retryDelay)
+			if i == maxRetries-1 {
+				log.Printf("INFO: TCP server not available. Progress sync features disabled. (This is optional)")
+			}
 			time.Sleep(retryDelay)
 			continue
 		}
@@ -1238,7 +1369,8 @@ func (s *APIServer) connectToTCPServer() {
 		return
 	}
 
-	log.Printf("WARNING: Failed to connect to TCP server after %d attempts. Progress updates will not be broadcasted.", maxRetries)
+	// TCP server is optional - continue without it
+	log.Printf("INFO: Running without TCP server connection. Real-time progress sync disabled.")
 }
 
 // maintainTCPConnection monitors the TCP connection and reconnects if needed
@@ -1248,7 +1380,7 @@ func (s *APIServer) maintainTCPConnection(tcpAddr string) {
 		// Read from connection to detect disconnection
 		_, err := reader.ReadByte()
 		if err != nil {
-			log.Printf("TCP connection lost: %v. Reconnecting...", err)
+			log.Printf("TCP connection lost. Running without TCP server.")
 			s.tcpMu.Lock()
 			if s.tcpConn != nil {
 				s.tcpConn.Close()
@@ -1256,9 +1388,8 @@ func (s *APIServer) maintainTCPConnection(tcpAddr string) {
 			}
 			s.tcpMu.Unlock()
 
-			// Reconnect
-			time.Sleep(5 * time.Second)
-			s.connectToTCPServer()
+			// Don't auto-reconnect to avoid spam
+			// Server can function without TCP connection
 			return
 		}
 	}
@@ -1271,7 +1402,7 @@ func (s *APIServer) broadcastProgressUpdate(userID, mangaID string, chapter int)
 	s.tcpMu.Unlock()
 
 	if conn == nil {
-		log.Println("TCP connection not available, skipping broadcast")
+		// TCP connection not available - this is fine, server works without it
 		return
 	}
 

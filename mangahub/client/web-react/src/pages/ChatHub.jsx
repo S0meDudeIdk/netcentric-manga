@@ -2,9 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  MessageCircle, Users, TrendingUp, Send, Settings, 
-  User, Circle, Book, Bell, Wifi, Activity, ArrowLeft,
-  Info, Hash, Loader
+  MessageCircle, Users, TrendingUp, Send, User, Circle, Bell, ArrowLeft, Info
 } from 'lucide-react';
 import authService from '../services/authService';
 import mangaService from '../services/mangaService';
@@ -27,10 +25,9 @@ const ChatHub = () => {
   
   // User list state
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const [userProgress, setUserProgress] = useState({});
   
-  // Hub statistics
-  const [hubStats, setHubStats] = useState({
+  // Hub statistics - keeping for potential future use
+  const [, setHubStats] = useState({
     totalUsers: 0,
     activeChats: 0,
     lastUpdate: null
@@ -92,7 +89,7 @@ const ChatHub = () => {
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
     }, 3000);
-  }, []);
+  }, [setNotifications]);
 
   // Handle incoming WebSocket messages
   const handleWebSocketMessage = useCallback((data) => {
@@ -257,7 +254,7 @@ const ChatHub = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background-light dark:bg-background-dark">
       {/* Notifications Toast */}
       <AnimatePresence>
         {notifications.map((notif) => (
@@ -266,7 +263,7 @@ const ChatHub = () => {
             initial={{ opacity: 0, y: -50, x: '-50%' }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
-            className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2"
+            className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-primary text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2"
           >
             <Bell className="w-5 h-5" />
             <span>{notif.message}</span>
@@ -275,46 +272,40 @@ const ChatHub = () => {
       </AnimatePresence>
 
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
+      <div className="bg-white dark:bg-[#191022] shadow-sm border-b border-zinc-200 dark:border-zinc-800">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={() => navigate(`/manga/${mangaId}`)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition"
+                className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowLeft className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
               </button>
               
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded flex items-center justify-center">
-                  <Book className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                    <Hash className="w-5 h-5 text-gray-400" />
-                    {manga.title}
-                  </h1>
-                  <p className="text-sm text-gray-600">Chat Hub</p>
+              <div>
+                <h1 className="text-xl font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                  {manga.title} - Discussion
+                </h1>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-1">
+                    <Users className="w-4 h-4 text-zinc-400" />
+                    <span className="text-sm text-zinc-600 dark:text-zinc-400">+5</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Connection Status */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-lg">
-                <div className="flex items-center gap-1">
-                  <Wifi className={`w-4 h-4 ${isConnected ? 'text-green-500' : 'text-gray-400'}`} />
-                  <span className="text-xs font-medium">WebSocket</span>
-                </div>
-                <Circle className={`w-2 h-2 ${isConnected ? 'fill-green-500 text-green-500' : 'fill-gray-400 text-gray-400'}`} />
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${
+                isConnected 
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' 
+                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'
+              }`}>
+                <Circle className={`w-2 h-2 ${isConnected ? 'fill-green-500 text-green-500' : 'fill-zinc-400 text-zinc-400'}`} />
+                <span className="text-xs font-medium">{isConnected ? 'Connected' : 'Disconnected'}</span>
               </div>
-              
-              {/* TCP/UDP Disabled - WebSocket only mode */}
-              {/* <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-lg">
-                <Activity className="w-4 h-4 text-blue-500" />
-                <span className="text-xs font-medium">TCP/UDP Active</span>
-              </div> */}
             </div>
           </div>
         </div>
@@ -322,32 +313,32 @@ const ChatHub = () => {
 
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6" style={{ height: 'calc(100vh - 140px)' }}>
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
           {/* Left Sidebar - Hub Info */}
-          <div className="lg:col-span-1 space-y-4 overflow-y-auto" style={{ maxHeight: '100%' }}>
+          <div className="lg:col-span-3 space-y-4 overflow-y-auto" style={{ maxHeight: '100%' }}>
             {/* Manga Info Card */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="bg-white rounded-lg shadow-sm p-4"
+              className="bg-white dark:bg-[#191022] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6"
             >
-              <div className="flex items-center gap-2 mb-3">
-                <Info className="w-5 h-5 text-blue-600" />
-                <h3 className="font-semibold text-gray-900">Manga Info</h3>
+              <div className="flex items-center gap-2 mb-4">
+                <Info className="w-5 h-5 text-primary" />
+                <h3 className="font-bold text-zinc-900 dark:text-white">Manga Info</h3>
               </div>
               
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Status:</span>
-                  <span className="font-medium">{manga.status || 'Ongoing'}</span>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-1">Status:</p>
+                  <p className="font-semibold text-zinc-900 dark:text-white">{manga.status || 'ongoing'}</p>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Chapters:</span>
-                  <span className="font-medium">{manga.chapters || 'N/A'}</span>
+                <div>
+                  <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-1">Chapters:</p>
+                  <p className="font-semibold text-zinc-900 dark:text-white">N/A</p>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Rating:</span>
-                  <span className="font-medium">⭐ {manga.score || 'N/A'}</span>
+                <div>
+                  <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-1">Rating:</p>
+                  <p className="font-semibold text-zinc-900 dark:text-white">⭐ N/A</p>
                 </div>
               </div>
             </motion.div>
@@ -357,56 +348,43 @@ const ChatHub = () => {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.1 }}
-              className="bg-white rounded-lg shadow-sm p-4"
+              className="bg-white dark:bg-[#191022] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6"
             >
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-4">
                 <TrendingUp className="w-5 h-5 text-green-600" />
-                <h3 className="font-semibold text-gray-900">Hub Stats</h3>
+                <h3 className="font-bold text-zinc-900 dark:text-white">Hub Stats</h3>
               </div>
               
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">Online Users</span>
+              <div className="space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-zinc-600 dark:text-zinc-400">Online Users:</span>
+                    <span className="font-bold text-zinc-900 dark:text-white">{onlineUsers.length}</span>
                   </div>
-                  <span className="font-bold text-lg text-blue-600">{onlineUsers.length}</span>
                 </div>
                 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <MessageCircle className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-600">Messages</span>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-zinc-600 dark:text-zinc-400">Messages:</span>
+                    <span className="font-bold text-zinc-900 dark:text-white">{messages.filter(m => m.type === 'message').length}</span>
                   </div>
-                  <span className="font-bold text-lg text-green-600">{messages.filter(m => m.type === 'message').length}</span>
                 </div>
               </div>
             </motion.div>
           </div>
 
           {/* Center - Chat Area */}
-          <div className="lg:col-span-2 h-full">
+          <div className="lg:col-span-6 h-full">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-lg shadow-sm flex flex-col h-full overflow-hidden"
+              className="bg-white dark:bg-[#191022] rounded-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-hidden"
             >
-              {/* Chat Header */}
-              <div className="px-4 py-3 border-b flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <MessageCircle className="w-5 h-5 text-blue-600" />
-                  <h3 className="font-semibold text-gray-900">Chat Room</h3>
-                </div>
-                <span className="text-sm text-gray-500">
-                  {onlineUsers.length} online
-                </span>
-              </div>
-
               {/* Messages Area */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ minHeight: 0 }}>
+              <div className="flex-1 overflow-y-auto p-6 space-y-4" style={{ minHeight: 0 }}>
                 {messages.length === 0 ? (
-                  <div className="text-center text-gray-500 py-8">
-                    <MessageCircle className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <div className="text-center text-zinc-500 dark:text-zinc-400 py-8">
+                    <MessageCircle className="w-12 h-12 mx-auto mb-2 text-zinc-300 dark:text-zinc-600" />
                     <p>No messages yet. Start the conversation!</p>
                   </div>
                 ) : (
@@ -414,7 +392,7 @@ const ChatHub = () => {
                     if (msg.type === 'system' || msg.type === 'notification') {
                       return (
                         <div key={msg.id} className="text-center">
-                          <span className="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-sm rounded-full">
+                          <span className="inline-block px-3 py-1 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-sm rounded-full">
                             {msg.type === 'notification' && <Bell className="w-3 h-3 inline mr-1" />}
                             {msg.message}
                           </span>
@@ -428,19 +406,29 @@ const ChatHub = () => {
                         key={msg.id}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
+                        className={`flex items-start gap-3 ${isOwn ? 'justify-end' : 'justify-start'}`}
                       >
-                        <div className={`max-w-[70%] ${isOwn ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'} rounded-lg px-4 py-2`}>
+                        {!isOwn && (
+                          <div className="w-10 h-10 bg-gradient-to-br from-primary to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+                            <User className="w-5 h-5 text-white" />
+                          </div>
+                        )}
+                        <div className={`max-w-[70%] ${isOwn ? 'bg-primary text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white'} rounded-2xl px-4 py-3`}>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-xs font-semibold ${isOwn ? 'text-blue-100' : 'text-gray-600'}`}>
+                            <span className={`text-sm font-bold ${isOwn ? 'text-white' : 'text-zinc-900 dark:text-white'}`}>
                               {msg.username}
                             </span>
-                            <span className={`text-xs ${isOwn ? 'text-blue-200' : 'text-gray-400'}`}>
+                            <span className={`text-xs ${isOwn ? 'text-white/70' : 'text-zinc-500 dark:text-zinc-400'}`}>
                               {new Date(msg.timestamp).toLocaleTimeString()}
                             </span>
                           </div>
                           <p className="text-sm break-words">{msg.message}</p>
                         </div>
+                        {isOwn && (
+                          <div className="w-10 h-10 bg-gradient-to-br from-primary to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+                            <User className="w-5 h-5 text-white" />
+                          </div>
+                        )}
                       </motion.div>
                     );
                   })
@@ -449,7 +437,7 @@ const ChatHub = () => {
               </div>
 
               {/* Input Area */}
-              <div className="p-4 border-t flex-shrink-0">
+              <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 flex-shrink-0">
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -458,15 +446,14 @@ const ChatHub = () => {
                     onKeyPress={handleKeyPress}
                     placeholder={isConnected ? "Type a message..." : "Connecting..."}
                     disabled={!isConnected}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    className="flex-1 px-4 py-3 border border-zinc-300 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none disabled:bg-zinc-100 dark:disabled:bg-zinc-800"
                   />
                   <button
                     onClick={handleSendMessage}
                     disabled={!isConnected || !messageInput.trim()}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    className="px-6 py-3 bg-primary text-white rounded-xl hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-bold shadow-lg shadow-primary/25"
                   >
                     <Send className="w-4 h-4" />
-                    Send
                   </button>
                 </div>
               </div>
@@ -474,59 +461,49 @@ const ChatHub = () => {
           </div>
 
           {/* Right Sidebar - User List */}
-          <div className="lg:col-span-1 h-full">
+          <div className="lg:col-span-3 h-full">
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="bg-white rounded-lg shadow-sm h-full flex flex-col overflow-hidden"
+              className="bg-white dark:bg-[#191022] rounded-2xl border border-zinc-200 dark:border-zinc-800 h-full flex flex-col overflow-hidden"
             >
               {/* User List Header */}
-              <div className="px-4 py-3 border-b flex-shrink-0">
+              <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex-shrink-0">
                 <div className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-blue-600" />
-                  <h3 className="font-semibold text-gray-900">Users</h3>
-                  <span className="ml-auto text-sm text-gray-500">
-                    {onlineUsers.length}
-                  </span>
+                  <Users className="w-5 h-5 text-primary" />
+                  <h3 className="font-bold text-zinc-900 dark:text-white">Users in Chat</h3>
                 </div>
               </div>
 
               {/* User List */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-2" style={{ minHeight: 0 }}>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ minHeight: 0 }}>
                 {onlineUsers.length === 0 ? (
-                  <div className="text-center text-gray-500 py-8">
-                    <Users className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <div className="text-center text-zinc-500 dark:text-zinc-400 py-8">
+                    <Users className="w-12 h-12 mx-auto mb-2 text-zinc-300 dark:text-zinc-600" />
                     <p className="text-sm">No users online</p>
                   </div>
                 ) : (
                   onlineUsers.map((user, index) => {
-                    const progress = userProgress[user.user_id];
                     return (
                       <motion.div
                         key={user.user_id || index}
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.05 }}
-                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition"
+                        className="flex items-center gap-3 p-3 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 transition"
                       >
                         <div className="relative">
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                          <div className="w-10 h-10 bg-gradient-to-br from-primary to-purple-600 rounded-full flex items-center justify-center">
                             <User className="w-5 h-5 text-white" />
                           </div>
-                          <Circle className="absolute bottom-0 right-0 w-3 h-3 fill-green-500 text-green-500 border-2 border-white rounded-full" />
+                          <Circle className="absolute bottom-0 right-0 w-3 h-3 fill-green-500 text-green-500 border-2 border-white dark:border-zinc-900 rounded-full" />
                         </div>
                         
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm text-gray-900 truncate">
+                          <p className="font-semibold text-sm text-zinc-900 dark:text-white truncate">
                             {user.username}
                           </p>
-                          {/* Progress display disabled - TCP not active */}
-                          {/* {progress && (
-                            <p className="text-xs text-gray-500 flex items-center gap-1">
-                              <Book className="w-3 h-3" />
-                              Ch. {progress.current_chapter || 0}/{manga.chapters || '?'}
-                            </p>
-                          )} */}
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">Reading</p>
                         </div>
                       </motion.div>
                     );

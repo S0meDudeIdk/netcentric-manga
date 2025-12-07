@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { UserPlus, Mail, Lock, User, AlertCircle, Book, CheckCircle } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import authService from '../services/authService';
 
 const Register = () => {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
-    password: '',
-    confirmPassword: ''
+    password: ''
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -20,7 +19,7 @@ const Register = () => {
       ...formData,
       [e.target.name]: e.target.value
     });
-    setError(''); // Clear error when user types
+    setError('');
   };
 
   const validateForm = () => {
@@ -31,11 +30,6 @@ const Register = () => {
 
     if (formData.password.length < 6) {
       setError('Password must be at least 6 characters');
-      return false;
-    }
-
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
       return false;
     }
 
@@ -59,15 +53,13 @@ const Register = () => {
     setLoading(true);
 
     try {
-      const response = await authService.register({
+      await authService.register({
         username: formData.username,
         email: formData.email,
         password: formData.password
       });
-      console.log('Registration successful:', response);
-      navigate('/library'); // Redirect to library after registration
+      navigate('/library');
     } catch (err) {
-      console.error('Registration error:', err);
       setError(err.error || err.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
@@ -75,161 +67,107 @@ const Register = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center px-4 py-12">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-md"
-      >
-        {/* Logo and Title */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <Book className="w-12 h-12 text-blue-600" />
-            <h1 className="text-3xl font-bold text-gray-900">MangaHub</h1>
+    <div className="relative flex min-h-screen w-full flex-col group/design-root">
+      <div className="flex-grow w-full">
+        <div className="min-h-screen flex flex-row">
+          {/* Left Panel: Illustration */}
+          <div className="hidden lg:flex w-1/2 items-center justify-center p-12 bg-background-light dark:bg-[#141118] illustration-bg">
+            <div className="w-full max-w-md">
+              <img
+                className="w-full h-auto"
+                alt="Stylized illustration of manga characters in dynamic poses with abstract shapes"
+                src="/assets/auth_hero.png"
+              />
+            </div>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900">Create Account</h2>
-          <p className="text-gray-600 mt-2">Start tracking your manga today</p>
-        </div>
 
-        {/* Registration Form */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3"
-            >
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <p className="text-red-700 text-sm">{error}</p>
-            </motion.div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Username Field */}
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-                Username
-              </label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  id="username"
-                  name="username"
-                  value={formData.username}
-                  onChange={handleChange}
-                  required
-                  minLength={3}
-                  maxLength={30}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                  placeholder="Choose a username"
-                />
+          {/* Right Panel: Form */}
+          <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 bg-background-light dark:bg-background-dark">
+            <div className="flex flex-col w-full max-w-md">
+              {/* Logo */}
+              <div className="flex items-center gap-3 mb-8">
+                <svg fill="none" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg">
+                  <path className="stroke-zinc-900 dark:stroke-white" d="M16 31.5C24.5604 31.5 31.5 24.5604 31.5 16C31.5 7.43959 24.5604 0.5 16 0.5C7.43959 0.5 0.5 7.43959 0.5 16C0.5 24.5604 7.43959 31.5 16 31.5Z" strokeWidth="1"></path>
+                  <path className="stroke-zinc-900 dark:stroke-white" d="M16 31.5C24.5604 31.5 31.5 24.5604 31.5 16C31.5 7.43959 24.5604 0.5 16 0.5C7.43959 0.5 0.5 7.43959 0.5 16C0.5 24.5604 7.43959 31.5 16 31.5Z" strokeWidth="1"></path>
+                  <path className="stroke-primary fill-primary/20" d="M11 11.25H21V20.75L16 26L11 20.75V11.25Z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"></path>
+                </svg>
+                <h2 className="text-xl font-bold text-zinc-900 dark:text-white">MangaHub</h2>
               </div>
-              <p className="mt-1 text-xs text-gray-500">3-30 characters</p>
-            </div>
 
-            {/* Email Field */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="email"
-                  id="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  required
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                  placeholder="you@example.com"
-                />
+              {/* Page Heading */}
+              <div className="flex min-w-72 flex-col gap-2 mb-8">
+                <p className="text-zinc-900 dark:text-white text-4xl font-black leading-tight tracking-[-0.033em]">Create Your Account</p>
+                <p className="text-zinc-500 dark:text-[#ab9db9] text-base font-normal leading-normal">Welcome to MangaHub, let's get you started.</p>
               </div>
-            </div>
 
-            {/* Password Field */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="password"
-                  id="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  required
-                  minLength={6}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                  placeholder="••••••••"
-                />
-              </div>
-              <p className="mt-1 text-xs text-gray-500">At least 6 characters</p>
-            </div>
-
-            {/* Confirm Password Field */}
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                Confirm Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="password"
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  required
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                  placeholder="••••••••"
-                />
-                {formData.confirmPassword && formData.password === formData.confirmPassword && (
-                  <CheckCircle className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500" />
-                )}
-              </div>
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Creating Account...</span>
-                </>
-              ) : (
-                <>
-                  <UserPlus className="w-5 h-5" />
-                  <span>Create Account</span>
-                </>
+              {error && (
+                <div className="mb-6 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5" />
+                  <p className="text-sm text-red-600 dark:text-red-400 font-medium">{error}</p>
+                </div>
               )}
-            </button>
-          </form>
 
-          {/* Login Link */}
-          <div className="mt-6 text-center">
-            <p className="text-gray-600">
-              Already have an account?{' '}
-              <Link to="/login" className="text-blue-600 hover:text-blue-700 font-semibold">
-                Sign in
-              </Link>
-            </p>
+              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                <label className="flex flex-col min-w-40 flex-1">
+                  <p className="text-zinc-900 dark:text-white text-base font-medium leading-normal pb-2">Username</p>
+                  <input
+                    name="username"
+                    value={formData.username}
+                    onChange={handleChange}
+                    className="form-input flex w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg text-zinc-900 dark:text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-zinc-300 dark:border-[#473b54] bg-white dark:bg-[#211c27] focus:border-primary dark:focus:border-primary h-14 placeholder:text-zinc-400 dark:placeholder:text-[#ab9db9] p-[15px] text-base font-normal leading-normal"
+                    placeholder="Enter your username"
+                  />
+                </label>
+
+                <label className="flex flex-col min-w-40 flex-1">
+                  <p className="text-zinc-900 dark:text-white text-base font-medium leading-normal pb-2">Email</p>
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="form-input flex w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg text-zinc-900 dark:text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-zinc-300 dark:border-[#473b54] bg-white dark:bg-[#211c27] focus:border-primary dark:focus:border-primary h-14 placeholder:text-zinc-400 dark:placeholder:text-[#ab9db9] p-[15px] text-base font-normal leading-normal"
+                    placeholder="Enter your email address"
+                  />
+                </label>
+
+                <label className="flex flex-col min-w-40 flex-1">
+                  <p className="text-zinc-900 dark:text-white text-base font-medium leading-normal pb-2">Password</p>
+                  <div className="flex w-full flex-1 items-stretch rounded-lg group">
+                    <input
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      value={formData.password}
+                      onChange={handleChange}
+                      className="form-input flex w-full min-w-0 flex-1 resize-none overflow-hidden rounded-lg text-zinc-900 dark:text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-zinc-300 dark:border-[#473b54] bg-white dark:bg-[#211c27] focus:border-primary dark:focus:border-primary h-14 placeholder:text-zinc-400 dark:placeholder:text-[#ab9db9] p-[15px] rounded-r-none border-r-0 pr-2 text-base font-normal leading-normal"
+                      placeholder="Enter your password"
+                    />
+                    <div
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-zinc-400 dark:text-[#ab9db9] flex border border-zinc-300 dark:border-[#473b54] bg-white dark:bg-[#211c27] items-center justify-center px-4 rounded-r-lg border-l-0 group-focus-within:border-primary group-focus-within:ring-2 group-focus-within:ring-primary/50 cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="w-6 h-6" /> : <Eye className="w-6 h-6" />}
+                    </div>
+                  </div>
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-14 px-5 flex-1 bg-primary text-white text-base font-bold leading-normal tracking-[0.015em] hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary/50 dark:focus:ring-offset-background-dark mt-4 disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  <span className="truncate">{loading ? 'Creating Account...' : 'Sign Up'}</span>
+                </button>
+              </form>
+
+              <div className="mt-8 text-center text-sm text-zinc-600 dark:text-zinc-400">
+                Already have an account?{' '}
+                <Link className="font-semibold text-primary hover:underline" to="/login">Log In</Link>
+              </div>
+            </div>
           </div>
         </div>
-
-        {/* Additional Info */}
-        <div className="mt-6 text-center text-sm text-gray-600">
-          <p>By creating an account, you agree to our Terms of Service and Privacy Policy</p>
-        </div>
-      </motion.div>
+      </div>
     </div>
   );
 };

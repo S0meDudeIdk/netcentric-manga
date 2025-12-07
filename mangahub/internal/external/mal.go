@@ -106,7 +106,7 @@ type MALPaging struct {
 }
 
 // SearchManga searches for manga using the official MAL API
-func (c *MALClient) SearchManga(query string, limit int) (*MALMangaListResponse, error) {
+func (c *MALClient) SearchManga(query string, limit int, offset int) (*MALMangaListResponse, error) {
 	if !c.IsConfigured() {
 		return nil, fmt.Errorf("MAL API not configured: please set MAL_CLIENT_ID in .env")
 	}
@@ -115,9 +115,16 @@ func (c *MALClient) SearchManga(query string, limit int) (*MALMangaListResponse,
 		limit = 20
 	}
 
+	if offset < 0 {
+		offset = 0
+	}
+
 	params := url.Values{}
 	params.Add("q", query)
 	params.Add("limit", fmt.Sprintf("%d", limit))
+	if offset > 0 {
+		params.Add("offset", fmt.Sprintf("%d", offset))
+	}
 	params.Add("fields", "id,title,main_picture,alternative_titles,start_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,status,genres,media_type,num_chapters,num_volumes,authors")
 
 	fullURL := fmt.Sprintf("%s/manga?%s", c.BaseURL, params.Encode())
@@ -190,13 +197,17 @@ func (c *MALClient) GetMangaByID(id int) (*MALMangaNode, error) {
 }
 
 // GetMangaRanking gets manga ranking (top manga)
-func (c *MALClient) GetMangaRanking(rankingType string, limit int) (*MALMangaListResponse, error) {
+func (c *MALClient) GetMangaRanking(rankingType string, limit int, offset int) (*MALMangaListResponse, error) {
 	if !c.IsConfigured() {
 		return nil, fmt.Errorf("MAL API not configured: please set MAL_CLIENT_ID in .env")
 	}
 
 	if limit <= 0 || limit > 500 {
 		limit = 20
+	}
+
+	if offset < 0 {
+		offset = 0
 	}
 
 	if rankingType == "" {
@@ -206,6 +217,9 @@ func (c *MALClient) GetMangaRanking(rankingType string, limit int) (*MALMangaLis
 	params := url.Values{}
 	params.Add("ranking_type", rankingType)
 	params.Add("limit", fmt.Sprintf("%d", limit))
+	if offset > 0 {
+		params.Add("offset", fmt.Sprintf("%d", offset))
+	}
 	params.Add("fields", "id,title,main_picture,alternative_titles,start_date,synopsis,mean,rank,popularity,num_list_users,num_scoring_users,status,genres,media_type,num_chapters,num_volumes,authors")
 
 	fullURL := fmt.Sprintf("%s/manga/ranking?%s", c.BaseURL, params.Encode())

@@ -87,10 +87,14 @@ const mangaService = {
   },
 
   // MyAnimeList API methods (via Jikan)
-  searchMAL: async (query, page = 1, limit = 20) => {
+  searchMAL: async (query, page = 1, limit = 20, orderBy = '', sort = '') => {
     try {
+      const params = { q: query, page, limit };
+      if (orderBy) params.order_by = orderBy;
+      if (sort) params.sort = sort;
+      
       const response = await axios.get(`${BASE_URL}/mal/search`, {
-        params: { q: query, page, limit },
+        params,
         headers: getAuthHeaders()
       });
       return response.data;
@@ -100,10 +104,14 @@ const mangaService = {
     }
   },
 
-  getTopMAL: async (page = 1, limit = 20) => {
+  getTopMAL: async (page = 1, limit = 20, orderBy = '', sort = '') => {
     try {
+      const params = { page, limit };
+      if (orderBy) params.order_by = orderBy;
+      if (sort) params.sort = sort;
+      
       const response = await axios.get(`${BASE_URL}/mal/top`, {
-        params: { page, limit },
+        params,
         headers: getAuthHeaders()
       });
       return response.data;
@@ -121,6 +129,18 @@ const mangaService = {
       return response.data;
     } catch (error) {
       console.error('Error fetching manga from MyAnimeList:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  getMALRecommendations: async (malId) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/mal/${malId}/recommendations`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching recommendations from MyAnimeList:', error);
       throw error.response?.data || error;
     }
   }
