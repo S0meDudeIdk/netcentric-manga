@@ -109,6 +109,19 @@ func createTables() error {
 			FOREIGN KEY (manga_id) REFERENCES manga(id) ON DELETE CASCADE
 		)`,
 
+		// Manga ratings table
+		`CREATE TABLE IF NOT EXISTS manga_ratings (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
+			manga_id TEXT NOT NULL,
+			rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, manga_id),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (manga_id) REFERENCES manga(id) ON DELETE CASCADE
+		)`,
+
 		// Create indexes for better performance
 		`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`,
@@ -116,6 +129,8 @@ func createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_manga_author ON manga(author)`,
 		`CREATE INDEX IF NOT EXISTS idx_progress_user ON user_progress(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_progress_manga ON user_progress(manga_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ratings_manga ON manga_ratings(manga_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ratings_user ON manga_ratings(user_id)`,
 	}
 
 	for _, query := range queries {

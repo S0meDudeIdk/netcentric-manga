@@ -57,9 +57,15 @@ func (s *Service) SearchManga(req models.MangaSearchRequest) ([]models.Manga, er
 	args := []interface{}{}
 
 	// Add search conditions
+	// * Keep it in case of future need for case-insensitive search
+	// if req.Query != "" {
+	// 	query += ` AND (title LIKE ? OR author LIKE ? OR description LIKE ?)`
+	// 	searchTerm := "%" + strings.ToLower(req.Query) + "%"
+	// 	args = append(args, searchTerm, searchTerm, searchTerm)
+	// }
 	if req.Query != "" {
-		query += ` AND (title LIKE ? OR author LIKE ? OR description LIKE ?)`
-		searchTerm := "%" + strings.ToLower(req.Query) + "%"
+		query += ` AND (title LIKE ? COLLATE NOCASE OR author LIKE ? COLLATE NOCASE OR description LIKE ? COLLATE NOCASE)`
+		searchTerm := "%" + req.Query + "%"
 		args = append(args, searchTerm, searchTerm, searchTerm)
 	}
 

@@ -37,12 +37,24 @@ func main() {
 		grpcPort = "9001"
 	}
 
+	// Get TCP server address from environment
+	tcpAddress := os.Getenv("TCP_SERVER_ADDRESS")
+	if tcpAddress == "" {
+		tcpAddress = "localhost:9000"
+	}
+
 	// Create services
 	mangaService := manga.NewService()
 	userService := user.NewService()
 
 	// Create gRPC server
 	grpcServer := grpc.NewServer(mangaService, userService)
+
+	// Connect to TCP server for broadcasting progress updates
+	if err := grpcServer.ConnectToTCP(tcpAddress); err != nil {
+		log.Printf("Warning: Failed to connect to TCP server: %v", err)
+		log.Println("gRPC server will continue without TCP broadcasting")
+	}
 
 	// Setup graceful shutdown
 	sigChan := make(chan os.Signal, 1)

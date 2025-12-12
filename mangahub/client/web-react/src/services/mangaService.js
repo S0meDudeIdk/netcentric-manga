@@ -10,6 +10,7 @@ const getBaseUrl = () => {
 };
 
 const BASE_URL = getBaseUrl();
+const API_BASE = BASE_URL.replace('/manga', ''); // Remove /manga for user routes
 
 // Add auth header to requests (optional - only if user is logged in)
 const getAuthHeaders = () => {
@@ -141,6 +142,109 @@ const mangaService = {
       return response.data;
     } catch (error) {
       console.error('Error fetching recommendations from MyAnimeList:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  // Generate chapter list with volume information
+  getChapterList: (manga) => {
+    // For now, we'll generate chapters based on total_chapters
+    // In the future, this could fetch from an API endpoint if chapter data is available
+    const chapters = [];
+    const totalChapters = manga.total_chapters || 0;
+    
+    if (totalChapters === 0) return chapters;
+
+    // If volumes are available, organize chapters by volume
+    // Assuming roughly 18 chapters per volume as average
+    const chaptersPerVolume = 18;
+    
+    for (let i = 1; i <= totalChapters; i++) {
+      const volume = Math.ceil(i / chaptersPerVolume);
+      chapters.push({
+        number: i,
+        volume: volume,
+        title: `Chapter ${i}`,
+        publishDate: null, // Can be populated if data is available
+        read: false
+      });
+    }
+    
+    return chapters;
+  },
+
+  // Get chapter list from backend (MangaDex/MangaPlus)
+  getChapters: async (mangaID, language = ['en'], limit = 100, offset = 0) => {
+    try {
+      const params = new URLSearchParams({
+        limit: limit.toString(),
+        offset: offset.toString()
+      });
+      
+      // Add multiple language parameters
+      language.forEach(lang => {
+        params.append('language', lang);
+      });
+      
+      const response = await axios.get(`${BASE_URL}/${mangaID}/chapters?${params.toString()}`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching chapters:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  // Get chapter pages
+  getChapterPages: async (chapterID, source = 'mangadex') => {
+    try {
+      const response = await axios.get(`${BASE_URL}/chapters/${chapterID}/pages?source=${source}`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching chapter pages:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  // Get manga ratings
+  getMangaRatings: async (mangaID) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/${mangaID}/ratings`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching manga ratings:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  // Rate a manga
+  rateManga: async (mangaID, rating) => {
+    try {
+      const response = await axios.post(`${API_BASE}/users/manga/${mangaID}/rating`, 
+        { rating },
+        { headers: getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error rating manga:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  // Delete user's rating
+  deleteRating: async (mangaID) => {
+    try {
+      const response = await axios.delete(`${API_BASE}/users/manga/${mangaID}/rating`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting rating:', error);
       throw error.response?.data || error;
     }
   }

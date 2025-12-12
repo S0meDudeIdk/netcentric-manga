@@ -5,21 +5,25 @@ import (
 	"fmt"
 	"log"
 	"mangahub/internal/auth"
+	"mangahub/internal/external"
 	"mangahub/pkg/database"
 	"mangahub/pkg/models"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // Service handles user-related operations
 type Service struct {
-	db *sql.DB
+	db        *sql.DB
+	malClient *external.MALClient
 }
 
 // NewService creates a new user service
 func NewService() *Service {
 	return &Service{
-		db: database.GetDB(),
+		db:        database.GetDB(),
+		malClient: external.NewMALClient(),
 	}
 }
 
@@ -145,11 +149,12 @@ func (s *Service) GetProfile(userID string) (*models.UserResponse, error) {
 
 // GetLibrary returns user's manga library organized by status
 func (s *Service) GetLibrary(userID string) (*models.UserLibrary, error) {
+	// Use LEFT JOIN to include external manga that aren't in local manga table
 	rows, err := s.db.Query(`
 		SELECT up.manga_id, up.current_chapter, up.status, up.last_updated,
 			   m.title, m.author, m.cover_url
 		FROM user_progress up
-		JOIN manga m ON up.manga_id = m.id
+		LEFT JOIN manga m ON up.manga_id = m.id
 		WHERE up.user_id = ?
 		ORDER BY up.last_updated DESC`, userID)
 
@@ -163,11 +168,13 @@ func (s *Service) GetLibrary(userID string) (*models.UserLibrary, error) {
 		Completed:  []models.UserProgress{},
 		PlanToRead: []models.UserProgress{},
 		Dropped:    []models.UserProgress{},
+		OnHold:     []models.UserProgress{},
+		ReReading:  []models.UserProgress{},
 	}
 
 	for rows.Next() {
 		var progress models.UserProgress
-		var title, author, coverURL string
+		var title, author, coverURL sql.NullString
 
 		err := rows.Scan(&progress.MangaID, &progress.CurrentChapter, &progress.Status,
 			&progress.LastUpdated, &title, &author, &coverURL)
@@ -177,6 +184,44 @@ func (s *Service) GetLibrary(userID string) (*models.UserLibrary, error) {
 		}
 
 		progress.UserID = userID
+
+		// If manga details are null (external manga), fetch from MAL API
+		if !title.Valid && strings.HasPrefix(progress.MangaID, "mal-") {
+			// Extract MAL ID and fetch details
+			malIDStr := strings.TrimPrefix(progress.MangaID, "mal-")
+			if malID, err := strconv.Atoi(malIDStr); err == nil {
+				if malManga, err := s.malClient.GetMangaByID(malID); err == nil {
+					progress.Title = malManga.Title
+					// Get author from authors array
+					if len(malManga.Authors) > 0 {
+						progress.Author = malManga.Authors[0].Node.FirstName + " " + malManga.Authors[0].Node.LastName
+					}
+					if malManga.MainPicture.Large != "" {
+						progress.CoverURL = malManga.MainPicture.Large
+					} else {
+						progress.CoverURL = malManga.MainPicture.Medium
+					}
+				} else {
+					log.Printf("Failed to fetch MAL manga %s: %v", malIDStr, err)
+					progress.Title = "Unknown Manga"
+				}
+			}
+		} else if !title.Valid && strings.HasPrefix(progress.MangaID, "mangadex-") {
+			// For MangaDex, use a placeholder (could implement MangaDex API later)
+			progress.Title = "MangaDex Manga"
+			progress.Author = "Unknown"
+		} else {
+			// Use local manga data
+			if title.Valid {
+				progress.Title = title.String
+			}
+			if author.Valid {
+				progress.Author = author.String
+			}
+			if coverURL.Valid {
+				progress.CoverURL = coverURL.String
+			}
+		}
 
 		// Organize by status
 		switch progress.Status {
@@ -188,6 +233,10 @@ func (s *Service) GetLibrary(userID string) (*models.UserLibrary, error) {
 			library.PlanToRead = append(library.PlanToRead, progress)
 		case "dropped":
 			library.Dropped = append(library.Dropped, progress)
+		case "on_hold":
+			library.OnHold = append(library.OnHold, progress)
+		case "re_reading":
+			library.ReReading = append(library.ReReading, progress)
 		}
 	}
 
@@ -196,18 +245,24 @@ func (s *Service) GetLibrary(userID string) (*models.UserLibrary, error) {
 
 // AddToLibrary adds a manga to user's library
 func (s *Service) AddToLibrary(userID string, req models.AddToLibraryRequest) error {
-	// Check if manga exists
-	var exists bool
-	err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)", req.MangaID).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("failed to check manga existence: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("manga not found")
+	// Only check if manga exists for local manga (not external like MAL or MangaDex)
+	// External manga IDs start with "mal-" or "mangadex-"
+	isExternalManga := strings.HasPrefix(req.MangaID, "mal-") || strings.HasPrefix(req.MangaID, "mangadex-")
+
+	if !isExternalManga {
+		// Check if local manga exists
+		var exists bool
+		err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)", req.MangaID).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check manga existence: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("manga not found")
+		}
 	}
 
 	// Insert or update user progress
-	_, err = s.db.Exec(`
+	_, err := s.db.Exec(`
 		INSERT INTO user_progress (user_id, manga_id, status, last_updated)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(user_id, manga_id) DO UPDATE SET
