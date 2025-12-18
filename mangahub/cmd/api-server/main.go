@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"mangahub/internal/auth"
 	"mangahub/internal/external"
+	grpcClient "mangahub/internal/grpc"
 	"mangahub/internal/manga"
 	"mangahub/internal/udp"
 	"mangahub/internal/user"
@@ -13,7 +15,6 @@ import (
 	"mangahub/pkg/database"
 	"mangahub/pkg/middleware"
 	"mangahub/pkg/models"
-	"mangahub/pkg/utils"
 	"net/http"
 	"os"
 	"strconv"
@@ -26,12 +27,14 @@ import (
 
 // APIServer represents the HTTP API server
 type APIServer struct {
-	Router       *gin.Engine
-	UserService  *user.Service
-	MangaService *manga.Service
-	MALClient    *external.MALClient
-	JikanClient  *external.JikanClient
-	Port         string
+	Router         *gin.Engine
+	UserService    *user.Service
+	MangaService   *manga.Service
+	ChapterService *manga.ChapterService
+	RatingService  *manga.RatingService
+	MALClient      *external.MALClient
+	JikanClient    *external.JikanClient
+	Port           string
 	// WebSocket chat hub for manga-specific chats
 	ChatHub *internalWebsocket.ChatHub
 	// WebSocket upgrader
@@ -40,6 +43,8 @@ type APIServer struct {
 	udpServerURL string
 	tcpServerURL string
 	httpClient   *http.Client
+	// gRPC client for internal service calls
+	GRPCClient *grpcClient.Client
 }
 
 // NewAPIServer creates a new API server instance
@@ -92,13 +97,15 @@ func NewAPIServer() *APIServer {
 	router.Use(gin.Recovery())
 
 	server := &APIServer{
-		Router:       router,
-		UserService:  user.NewService(),
-		MangaService: manga.NewService(),
-		MALClient:    external.NewMALClient(),
-		JikanClient:  external.NewJikanClient(),
-		Port:         getPort(),
-		ChatHub:      internalWebsocket.NewChatHub(),
+		Router:         router,
+		UserService:    user.NewService(),
+		MangaService:   manga.NewService(),
+		ChapterService: manga.NewChapterService(),
+		RatingService:  manga.NewRatingService(),
+		MALClient:      external.NewMALClient(),
+		JikanClient:    external.NewJikanClient(),
+		Port:           getPort(),
+		ChatHub:        internalWebsocket.NewChatHub(),
 		upgrader: internalWebsocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -110,6 +117,9 @@ func NewAPIServer() *APIServer {
 		},
 	}
 
+	// Set manga service reference for chapter service
+	server.ChapterService.SetMangaService(server.MangaService)
+
 	// Start WebSocket chat hub
 	// WebSocket rooms are created on demand when users join
 	log.Println("WebSocket ChatHub initialized")
@@ -120,6 +130,9 @@ func NewAPIServer() *APIServer {
 
 	server.initializeTCP()
 	server.initializeUDP()
+
+	// Connect to gRPC server
+	go server.connectToGRPCServer()
 
 	// Setup routes
 	server.setupRoutes()
@@ -194,6 +207,36 @@ func corsMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		c.Next()
+	}
+}
+
+// optionalAuthMiddleware extracts user info from token if present, but doesn't require it
+func optionalAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var token string
+
+		// Try to get token from Authorization header
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" {
+			tokenParts := strings.Split(authHeader, " ")
+			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
+				token = tokenParts[1]
+			}
+		}
+
+		// If token exists, validate and set user info
+		if token != "" {
+			claims, err := auth.ValidateToken(token)
+			if err == nil {
+				// Store user info in context
+				c.Set("user_id", claims.UserID)
+				c.Set("username", claims.Username)
+				c.Set("email", claims.Email)
+			}
+		}
+
+		// Continue regardless of authentication status
 		c.Next()
 	}
 }
@@ -283,7 +326,6 @@ func (s *APIServer) setupRoutes() {
 		publicManga := v1.Group("/manga")
 		{
 			publicManga.GET("/", s.searchManga)
-			publicManga.GET("/:id", s.getManga)
 			publicManga.GET("/genres", s.getGenres)
 			publicManga.GET("/popular", s.getPopularManga)
 			publicManga.GET("/stats", s.getMangaStats)
@@ -293,6 +335,19 @@ func (s *APIServer) setupRoutes() {
 			publicManga.GET("/mal/top", s.getTopMAL)
 			publicManga.GET("/mal/:mal_id", s.getMALManga)
 			publicManga.GET("/mal/:mal_id/recommendations", s.getMALRecommendations)
+
+			// MangaDex search routes
+			publicManga.GET("/mangadex/search", s.searchMangaDex)
+
+			// Chapter routes (public - no auth required for reading)
+			// These must come before /:id to avoid route conflicts
+			publicManga.GET("/chapters/:chapter_id/pages", s.getChapterPages)
+
+			// This must be last to avoid conflicts with specific routes above
+			publicManga.GET("/:id", s.getManga)
+			publicManga.GET("/:id/chapters", s.getChapterList)
+			// Use optional auth for ratings to return user-specific rating if authenticated
+			publicManga.GET("/:id/ratings", optionalAuthMiddleware(), s.getMangaRatings)
 		}
 
 		// Protected routes
@@ -311,6 +366,9 @@ func (s *APIServer) setupRoutes() {
 				users.PUT("/progress", s.updateProgress)
 				users.PUT("/progress/batch", s.batchUpdateProgress)
 				users.DELETE("/library/:manga_id", s.removeFromLibrary)
+				// Rating routes (protected)
+				users.POST("/manga/:manga_id/rating", s.rateManga)
+				users.DELETE("/manga/:manga_id/rating", s.deleteRating)
 			}
 
 			// Admin routes for manga management
@@ -333,6 +391,14 @@ func (s *APIServer) setupRoutes() {
 
 			// WebSocket chat endpoint (protected - requires authentication)
 			protected.GET("/ws/chat", internalWebsocket.HandleWebSocketChat(s.ChatHub, s.upgrader))
+
+			// gRPC-backed endpoints (protected)
+			grpcRoutes := protected.Group("/grpc")
+			{
+				grpcRoutes.GET("/manga/:id", s.getMangaViaGRPC)
+				grpcRoutes.GET("/manga/search", s.searchMangaViaGRPC)
+				grpcRoutes.PUT("/progress/update", s.updateProgressViaGRPC)
+			}
 		}
 		// WebSocket stats endpoint (public for monitoring)
 		v1.GET("/ws/stats", internalWebsocket.GetWebSocketStats(s.ChatHub))
@@ -934,6 +1000,15 @@ func (s *APIServer) searchMAL(c *gin.Context) {
 
 	manga := external.ConvertJikanListToManga(jikanManga.Data)
 
+	// Get user ID if authenticated (optional)
+	userID := ""
+	if uid, exists := c.Get("user_id"); exists {
+		userID = uid.(string)
+	}
+
+	// Enrich manga with custom ratings instead of MAL ratings
+	s.enrichMangaWithRatings(manga, userID)
+
 	c.JSON(http.StatusOK, gin.H{
 		"data":   manga,
 		"total":  len(manga),
@@ -1044,6 +1119,15 @@ func (s *APIServer) getTopMAL(c *gin.Context) {
 
 	manga := external.ConvertJikanListToManga(jikanManga.Data)
 
+	// Get user ID if authenticated (optional)
+	userID := ""
+	if uid, exists := c.Get("user_id"); exists {
+		userID = uid.(string)
+	}
+
+	// Enrich manga with custom ratings instead of MAL ratings
+	s.enrichMangaWithRatings(manga, userID)
+
 	c.JSON(http.StatusOK, gin.H{
 		"data":   manga,
 		"total":  len(manga),
@@ -1084,6 +1168,16 @@ func (s *APIServer) getMALManga(c *gin.Context) {
 			}
 		} else {
 			manga := external.ConvertMALToManga(malManga)
+
+			// Get user ID if authenticated (optional)
+			userID := ""
+			if uid, exists := c.Get("user_id"); exists {
+				userID = uid.(string)
+			}
+
+			// Enrich manga with custom ratings instead of MAL ratings
+			s.enrichMangaWithRatings([]*models.Manga{manga}, userID)
+
 			c.JSON(http.StatusOK, manga)
 			return
 		}
@@ -1102,6 +1196,16 @@ func (s *APIServer) getMALManga(c *gin.Context) {
 	}
 
 	manga := external.ConvertJikanToManga(jikanManga)
+
+	// Get user ID if authenticated (optional)
+	userID := ""
+	if uid, exists := c.Get("user_id"); exists {
+		userID = uid.(string)
+	}
+
+	// Enrich manga with custom ratings instead of MAL ratings
+	s.enrichMangaWithRatings([]*models.Manga{manga}, userID)
+
 	c.JSON(http.StatusOK, manga)
 }
 
@@ -1128,6 +1232,15 @@ func (s *APIServer) getMALRecommendations(c *gin.Context) {
 		manga := external.ConvertJikanToManga(&rec)
 		mangaList = append(mangaList, manga)
 	}
+
+	// Get user ID if authenticated (optional)
+	userID := ""
+	if uid, exists := c.Get("user_id"); exists {
+		userID = uid.(string)
+	}
+
+	// Enrich manga with custom ratings instead of MAL ratings
+	s.enrichMangaWithRatings(mangaList, userID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"data":  mangaList,
@@ -1380,6 +1493,41 @@ func (s *APIServer) validateSingleMangaData(manga models.Manga) error {
 	return nil
 }
 
+// connectToGRPCServer establishes connection to gRPC server
+func (s *APIServer) connectToGRPCServer() {
+	grpcAddr := os.Getenv("GRPC_SERVER_ADDR")
+	if grpcAddr == "" {
+		grpcAddr = "localhost:9001" // Default gRPC server address
+	}
+
+	maxRetries := 5
+	retryDelay := 2 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		if i == 0 {
+			log.Printf("Attempting to connect to gRPC server at %s...", grpcAddr)
+		}
+
+		client, err := grpcClient.NewClient(grpcAddr)
+		if err != nil {
+			if i < maxRetries-1 {
+				log.Printf("Failed to connect to gRPC server (attempt %d/%d): %v", i+1, maxRetries, err)
+				time.Sleep(retryDelay)
+				continue
+			} else {
+				log.Printf("WARNING: gRPC server not available. Some features may be limited. Error: %v", err)
+				return
+			}
+		}
+
+		s.GRPCClient = client
+		log.Printf("Successfully connected to gRPC server at %s", grpcAddr)
+		return
+	}
+
+	// gRPC server is optional - continue without it
+	log.Printf("INFO: Running without gRPC server connection.")
+}
 func (s *APIServer) initializeTCP() {
 	// Configure TCP server URL
 	tcpServerHost := os.Getenv("TCP_SERVER_HOST")
@@ -1509,43 +1657,9 @@ func main() {
 		log.Printf("Current working directory: %s", cwd)
 	}
 
-	// Load manga data if not already loaded
-	// Try to get path from environment variable first
-	log.Println("Loading manga data...")
-	dataFilePath := os.Getenv("MANGA_DATA_FILE")
-	if dataFilePath == "" {
-		dataFilePath = "data/manga.json" // Default
-	}
-
-	possiblePaths := []string{
-		dataFilePath,            // From environment or default
-		"data/manga.json",       // From mangahub root
-		"../../data/manga.json", // From cmd/api-server
-		"../data/manga.json",    // Alternative
-		"./data/manga.json",     // Current dir
-	}
-
-	loaded := false
-	for _, path := range possiblePaths {
-		log.Printf("Trying to load manga data from: %s", path)
-		if err := utils.LoadMangaData(path); err == nil {
-			log.Printf("Successfully loaded manga data from: %s", path)
-			loaded = true
-			break
-		} else {
-			log.Printf("Failed to load from %s: %v", path, err)
-		}
-	}
-
-	if !loaded {
-		log.Println("WARNING: No manga data loaded! API will return empty results.")
-		log.Println("Make sure manga.json exists in one of these locations:")
-		for _, path := range possiblePaths {
-			log.Printf("  - %s", path)
-		}
-	}
-
 	// Create and start server
+	// Note: Manga data is now fetched from external APIs (MAL/Jikan, MangaDex)
+	// Local manga.json is no longer used
 	server := NewAPIServer()
 
 	log.Println("MangaHub API Server starting...")
@@ -1565,4 +1679,371 @@ func main() {
 	if err := server.Start(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+// getChapterList handles GET /api/v1/manga/:id/chapters
+func (s *APIServer) getChapterList(c *gin.Context) {
+	mangaID := c.Param("id")
+
+	// Get query parameters
+	languages := c.QueryArray("language")
+	limitStr := c.DefaultQuery("limit", "100")
+	offsetStr := c.DefaultQuery("offset", "0")
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		limit = 100
+	}
+
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil {
+		offset = 0
+	}
+
+	// Get chapters from service
+	chapters, err := s.ChapterService.GetChapterList(mangaID, languages, limit, offset)
+	if err != nil {
+		log.Printf("Error getting chapter list for manga %s: %v", mangaID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to retrieve chapter list",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, chapters)
+}
+
+// getChapterPages handles GET /api/v1/manga/chapters/:chapter_id/pages
+func (s *APIServer) getChapterPages(c *gin.Context) {
+	chapterID := c.Param("chapter_id")
+	source := c.DefaultQuery("source", "mangadex")
+
+	// Get chapter pages from service
+	pages, err := s.ChapterService.GetChapterPages(chapterID, source)
+	if err != nil {
+		log.Printf("Error getting chapter pages for chapter %s: %v", chapterID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to retrieve chapter pages",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, pages)
+}
+
+// searchMangaDex handles GET /api/v1/manga/mangadex/search
+func (s *APIServer) searchMangaDex(c *gin.Context) {
+	title := c.Query("title")
+	if title == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "title query parameter is required",
+		})
+		return
+	}
+
+	limitStr := c.DefaultQuery("limit", "10")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 || limit > 100 {
+		limit = 10
+	}
+
+	// Search MangaDex
+	client := external.NewMangaDexClient()
+	results, err := client.SearchManga(title, limit)
+	if err != nil {
+		log.Printf("Error searching MangaDex for '%s': %v", title, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to search MangaDex",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Convert to simplified response
+	response := make([]gin.H, 0, len(results.Data))
+	for _, manga := range results.Data {
+		response = append(response, gin.H{
+			"id":          manga.ID,
+			"title":       manga.GetTitle(),
+			"description": manga.GetDescription(),
+			"status":      manga.Attributes.Status,
+			"year":        manga.Attributes.Year,
+			"genres":      manga.GetGenres(),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"results": response,
+		"total":   results.Total,
+		"limit":   results.Limit,
+		"offset":  results.Offset,
+	})
+}
+
+// rateManga handles POST /api/v1/manga/:manga_id/ratings
+func (s *APIServer) rateManga(c *gin.Context) {
+	mangaID := c.Param("manga_id")
+	userID := c.GetString("user_id")
+
+	var req struct {
+		Rating int `json:"rating" binding:"required,min=1,max=5"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Rating must be between 1 and 5"})
+		return
+	}
+
+	if err := s.RatingService.RateManga(userID, mangaID, req.Rating); err != nil {
+		log.Printf("Error rating manga: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save rating"})
+		return
+	}
+
+	// Get updated stats
+	stats, err := s.RatingService.GetMangaRatingStats(mangaID, userID)
+	if err != nil {
+		log.Printf("Error getting rating stats: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get rating stats"})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// deleteRating handles DELETE /api/v1/manga/:manga_id/ratings
+func (s *APIServer) deleteRating(c *gin.Context) {
+	mangaID := c.Param("manga_id")
+	userID := c.GetString("user_id")
+
+	if err := s.RatingService.DeleteRating(userID, mangaID); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Rating not found"})
+		} else {
+			log.Printf("Error deleting rating: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete rating"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Rating deleted successfully"})
+}
+
+// getMangaRatings handles GET /api/v1/manga/:id/ratings
+func (s *APIServer) getMangaRatings(c *gin.Context) {
+	mangaID := c.Param("id")
+
+	// Get user ID if authenticated (optional)
+	userID := ""
+	if uid, exists := c.Get("user_id"); exists {
+		userID = uid.(string)
+	}
+
+	stats, err := s.RatingService.GetMangaRatingStats(mangaID, userID)
+	if err != nil {
+		log.Printf("Error getting rating stats: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get rating stats"})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// enrichMangaWithRatings adds custom user ratings to manga list, replacing MAL ratings
+func (s *APIServer) enrichMangaWithRatings(mangaList []*models.Manga, userID string) {
+	for _, manga := range mangaList {
+		// Get custom rating stats for this manga
+		stats, err := s.RatingService.GetMangaRatingStats(manga.ID, userID)
+		if err != nil {
+			// If there's an error, set rating to 0 (no rating)
+			manga.Rating = 0
+			manga.RatingCount = 0
+			manga.UserRating = nil
+			continue
+		}
+
+		// Replace MAL rating with our custom rating
+		if stats.AverageRating > 0 {
+			manga.Rating = stats.AverageRating
+		} else {
+			manga.Rating = 0
+		}
+		manga.RatingCount = stats.TotalRatings
+		manga.UserRating = stats.UserRating
+	}
+}
+
+// ============================================================================
+// gRPC-backed HTTP Handlers (UC-014, UC-015, UC-016)
+// ============================================================================
+
+// getMangaViaGRPC retrieves manga via gRPC service (UC-014)
+func (s *APIServer) getMangaViaGRPC(c *gin.Context) {
+	mangaID := c.Param("id")
+
+	// Check if gRPC client is available
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "gRPC service unavailable",
+		})
+		return
+	}
+
+	// Call gRPC GetManga method
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.GetManga(ctx, mangaID)
+	if err != nil {
+		log.Printf("gRPC GetManga error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to retrieve manga via gRPC",
+		})
+		return
+	}
+
+	if resp.Error != "" {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": resp.Error,
+		})
+		return
+	}
+
+	// Convert protobuf manga to JSON response
+	manga := resp.Manga
+	c.JSON(http.StatusOK, gin.H{
+		"id":               manga.Id,
+		"title":            manga.Title,
+		"author":           manga.Author,
+		"genres":           manga.Genres,
+		"status":           manga.Status,
+		"total_chapters":   manga.TotalChapters,
+		"description":      manga.Description,
+		"cover_url":        manga.CoverUrl,
+		"publication_year": manga.PublicationYear,
+		"rating":           manga.Rating,
+		"created_at":       manga.CreatedAt,
+		"source":           "grpc",
+	})
+}
+
+// searchMangaViaGRPC searches manga via gRPC service (UC-015)
+func (s *APIServer) searchMangaViaGRPC(c *gin.Context) {
+	query := c.Query("q")
+	if query == "" {
+		query = c.Query("query")
+	}
+
+	// Check if gRPC client is available
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "gRPC service unavailable",
+		})
+		return
+	}
+
+	// Parse limit parameter
+	limit := int32(20)
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = int32(l)
+		}
+	}
+
+	// Call gRPC SearchManga method
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.SearchManga(ctx, query, limit)
+	if err != nil {
+		log.Printf("gRPC SearchManga error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to search manga via gRPC",
+		})
+		return
+	}
+
+	if resp.Error != "" {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": resp.Error,
+		})
+		return
+	}
+
+	// Convert protobuf manga list to JSON response
+	results := make([]gin.H, len(resp.Manga))
+	for i, manga := range resp.Manga {
+		results[i] = gin.H{
+			"id":               manga.Id,
+			"title":            manga.Title,
+			"author":           manga.Author,
+			"genres":           manga.Genres,
+			"status":           manga.Status,
+			"total_chapters":   manga.TotalChapters,
+			"description":      manga.Description,
+			"cover_url":        manga.CoverUrl,
+			"publication_year": manga.PublicationYear,
+			"rating":           manga.Rating,
+			"created_at":       manga.CreatedAt,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"manga":  results,
+		"total":  resp.Total,
+		"query":  query,
+		"source": "grpc",
+	})
+}
+
+// updateProgressViaGRPC updates reading progress via gRPC service (UC-016)
+func (s *APIServer) updateProgressViaGRPC(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req struct {
+		MangaID        string `json:"manga_id" binding:"required"`
+		CurrentChapter int    `json:"current_chapter" binding:"min=0"`
+		Status         string `json:"status" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if gRPC client is available
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "gRPC service unavailable",
+		})
+		return
+	}
+
+	// Call gRPC UpdateProgress method
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.UpdateProgress(ctx, userID, req.MangaID, int32(req.CurrentChapter), req.Status)
+	if err != nil {
+		log.Printf("gRPC UpdateProgress error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to update progress via gRPC",
+		})
+		return
+	}
+
+	if !resp.Success {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": resp.Error,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": resp.Message,
+		"source":  "grpc",
+		"success": true,
+	})
 }

@@ -14,7 +14,21 @@ const Home = () => {
   const [recentlyAdded, setRecentlyAdded] = useState([]);
   const [continueReading, setContinueReading] = useState([]);
   const [loading, setLoading] = useState(true);
-  const isAuthenticated = authService.isAuthenticated();
+  const [isAuthenticated, setIsAuthenticated] = useState(authService.isAuthenticated());
+
+  useEffect(() => {
+    // Update auth status when component mounts or window gains focus
+    const checkAuth = () => {
+      setIsAuthenticated(authService.isAuthenticated());
+    };
+    
+    checkAuth();
+    window.addEventListener('focus', checkAuth);
+    
+    return () => {
+      window.removeEventListener('focus', checkAuth);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -29,7 +43,7 @@ const Home = () => {
         setRecentlyAdded(recentData.data || []);
         
         // Fetch continue reading if authenticated
-        if (isAuthenticated) {
+        if (isAuthenticated && authService.getToken()) {
           try {
             const libraryData = await userService.getLibrary();
             const readingManga = libraryData.library?.filter(item => item.status === 'reading').slice(0, 3) || [];

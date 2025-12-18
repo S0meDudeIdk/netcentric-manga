@@ -42,7 +42,7 @@ const MangaCard = ({ manga, index = 0 }) => {
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
         {/* Rating Badge */}
-        {manga.rating && (
+        {manga.rating !== undefined && manga.rating !== null && (
           <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md text-white px-2 py-1 rounded-lg flex items-center gap-1 text-xs font-bold shadow-lg border border-white/10">
             <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
             <span>{manga.rating.toFixed(1)}</span>

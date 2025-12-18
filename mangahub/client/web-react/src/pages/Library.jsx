@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Library as LibraryIcon, Book, Filter, CheckCircle2, Clock, XCircle, PauseCircle, Search, ChevronDown, Plus } from 'lucide-react';
+import { Library as LibraryIcon, Book, Filter, CheckCircle2, Clock, XCircle, PauseCircle, Search, ChevronDown, Plus, RotateCw } from 'lucide-react';
 import userService from '../services/userService';
 import MangaCard from '../components/MangaCard';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -21,7 +21,26 @@ const Library = () => {
       setLoading(true);
       const libraryData = await userService.getLibrary();
 
-      setLibrary(libraryData.library || []);
+      // Flatten the library data from different status arrays into one
+      const flatLibrary = [
+        ...(libraryData.reading || []),
+        ...(libraryData.completed || []),
+        ...(libraryData.plan_to_read || []),
+        ...(libraryData.dropped || []),
+        ...(libraryData.on_hold || []),
+        ...(libraryData.re_reading || [])
+      ].map(item => ({
+        ...item,
+        // Transform to match expected structure - manga details are now directly on the progress object
+        manga: {
+          id: item.manga_id,
+          title: item.title,
+          author: item.author,
+          cover_url: item.cover_url
+        }
+      }));
+
+      setLibrary(flatLibrary);
     } catch (err) {
       console.error('Error fetching library:', err);
       setError(err.message);
@@ -42,6 +61,7 @@ const Library = () => {
     plan_to_read: library.filter(item => item.status === 'plan_to_read').length,
     on_hold: library.filter(item => item.status === 'on_hold').length,
     dropped: library.filter(item => item.status === 'dropped').length,
+    re_reading: library.filter(item => item.status === 're_reading').length,
   };
 
   return (
@@ -71,6 +91,7 @@ const Library = () => {
                   { value: 'plan_to_read', label: 'Plan to Read', icon: Clock, count: statusCounts.plan_to_read },
                   { value: 'on_hold', label: 'On Hold', icon: PauseCircle, count: statusCounts.on_hold },
                   { value: 'dropped', label: 'Dropped', icon: XCircle, count: statusCounts.dropped },
+                  { value: 're_reading', label: 'Re-Reading', icon: RotateCw, count: statusCounts.re_reading },
                 ].map(({ value, label, icon: Icon, count }) => (
                   <button
                     key={value}

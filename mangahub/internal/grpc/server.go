@@ -2,13 +2,17 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"mangahub/internal/manga"
+	"mangahub/internal/tcp"
 	"mangahub/internal/user"
 	"mangahub/pkg/models"
 	pb "mangahub/proto"
 	"net"
+	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 )
@@ -19,6 +23,8 @@ type Server struct {
 	MangaService *manga.Service
 	UserService  *user.Service
 	grpcServer   *grpc.Server
+	tcpConn      net.Conn
+	tcpMu        sync.Mutex
 }
 
 // NewServer creates a new gRPC server
@@ -26,6 +32,53 @@ func NewServer(mangaService *manga.Service, userService *user.Service) *Server {
 	return &Server{
 		MangaService: mangaService,
 		UserService:  userService,
+	}
+}
+
+// ConnectToTCP establishes connection to TCP server for broadcasting
+func (s *Server) ConnectToTCP(tcpAddress string) error {
+	conn, err := net.Dial("tcp", tcpAddress)
+	if err != nil {
+		return fmt.Errorf("failed to connect to TCP server: %v", err)
+	}
+	s.tcpConn = conn
+	log.Printf("gRPC server connected to TCP server at %s", tcpAddress)
+	return nil
+}
+
+// broadcastProgress sends progress update to TCP server
+func (s *Server) broadcastProgress(userID, mangaID string, chapter int) {
+	if s.tcpConn == nil {
+		log.Println("Warning: TCP connection not established, skipping broadcast")
+		return
+	}
+
+	update := tcp.ProgressUpdate{
+		UserID:    userID,
+		MangaID:   mangaID,
+		Chapter:   chapter,
+		Timestamp: time.Now().Unix(),
+	}
+
+	message, err := json.Marshal(update)
+	if err != nil {
+		log.Printf("Error marshaling progress update: %v", err)
+		return
+	}
+
+	message = append(message, '\n')
+
+	s.tcpMu.Lock()
+	defer s.tcpMu.Unlock()
+
+	s.tcpConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_, err = s.tcpConn.Write(message)
+	if err != nil {
+		log.Printf("Error sending progress update to TCP server: %v", err)
+		// Try to reconnect on next update
+		s.tcpConn = nil
+	} else {
+		log.Printf("Broadcasted progress update via TCP: User=%s, Manga=%s, Chapter=%d", userID, mangaID, chapter)
 	}
 }
 
@@ -117,6 +170,9 @@ func (s *Server) UpdateProgress(ctx context.Context, req *pb.ProgressRequest) (*
 		}, nil
 	}
 
+	// Trigger TCP broadcast for real-time sync
+	go s.broadcastProgress(req.UserId, req.MangaId, int(req.CurrentChapter))
+
 	return &pb.ProgressResponse{
 		Success: true,
 		Message: "Progress updated successfully",
@@ -149,5 +205,14 @@ func (s *Server) Stop() {
 	if s.grpcServer != nil {
 		log.Println("Stopping gRPC server...")
 		s.grpcServer.GracefulStop()
+	}
+
+	// Close TCP connection
+	s.tcpMu.Lock()
+	defer s.tcpMu.Unlock()
+	if s.tcpConn != nil {
+		log.Println("Closing TCP connection...")
+		s.tcpConn.Close()
+		s.tcpConn = nil
 	}
 }

@@ -11,10 +11,16 @@ const getBaseUrl = () => {
 
 const BASE_URL = getBaseUrl();
 
-const getAuthHeaders = () => ({
-  'Authorization': `Bearer ${authService.getToken()}`,
-  'Content-Type': 'application/json'
-});
+const getAuthHeaders = () => {
+  const token = authService.getToken();
+  if (!token) {
+    throw new Error('No authentication token found. Please log in.');
+  }
+  return {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  };
+};
 
 const userService = {
   getProfile: async () => {

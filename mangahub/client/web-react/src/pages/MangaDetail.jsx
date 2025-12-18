@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Book, ArrowLeft, Plus, Check, TrendingUp, AlertCircle, MessageCircle, Search
+  Book, ArrowLeft, Plus, Check, TrendingUp, AlertCircle, MessageCircle, Search, ArrowUpDown, ChevronLeft, ChevronRight, X, List, ArrowUpCircle, ArrowDownCircle, BookOpen, Star
 } from 'lucide-react';
 import mangaService from '../services/mangaService';
 import userService from '../services/userService';
 import authService from '../services/authService';
 import LoadingSpinner from '../components/LoadingSpinner';
+import AddToLibraryModal from '../components/AddToLibraryModal';
 
 const MangaDetail = () => {
   const { id } = useParams();
@@ -19,7 +20,35 @@ const MangaDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [updating, setUpdating] = useState(false);
-  const isAuthenticated = authService.isAuthenticated();
+  const [showIndexModal, setShowIndexModal] = useState(false);
+  const [sortAscending, setSortAscending] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [realChapters, setRealChapters] = useState([]);
+  const [loadingChapters, setLoadingChapters] = useState(false);
+  const [useRealChapters, setUseRealChapters] = useState(true);
+  const [ratingStats, setRatingStats] = useState(null);
+  const [userRating, setUserRating] = useState(null);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [submittingRating, setSubmittingRating] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(authService.isAuthenticated());
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // Update authentication state whenever component updates or page is focused
+  useEffect(() => {
+    const checkAuth = () => {
+      const authStatus = authService.isAuthenticated();
+      setIsAuthenticated(authStatus);
+    };
+    
+    checkAuth();
+    
+    // Check auth when window gains focus (user might have logged in another tab)
+    window.addEventListener('focus', checkAuth);
+    
+    return () => {
+      window.removeEventListener('focus', checkAuth);
+    };
+  }, []);
 
   const fetchMangaDetail = useCallback(async () => {
     try {
@@ -54,7 +83,7 @@ const MangaDetail = () => {
       setManga(data);
 
       // Check if in library (only for authenticated users)
-      if (isAuthenticated) {
+      if (isAuthenticated && authService.getToken()) {
         try {
           const libraryData = await userService.getLibrary();
           // For MAL manga, we need to match by the full ID including "mal-" prefix
@@ -82,23 +111,140 @@ const MangaDetail = () => {
     fetchMangaDetail();
   }, [fetchMangaDetail]);
 
-  const handleAddToLibrary = async () => {
+  // Fetch real chapters from API
+  useEffect(() => {
+    const fetchChapters = async () => {
+      if (!manga) return;
+      
+      // Only fetch if manga ID suggests it's from an external source
+      const idStr = id.toString();
+      if (!idStr.startsWith('mal-') && !idStr.includes('mangadex') && !idStr.includes('mangaplus')) {
+        setUseRealChapters(false);
+        return;
+      }
+
+      try {
+        setLoadingChapters(true);
+        const chaptersData = await mangaService.getChapters(id, ['en'], 500, 0);
+        if (chaptersData && chaptersData.chapters && chaptersData.chapters.length > 0) {
+          setRealChapters(chaptersData.chapters);
+          setUseRealChapters(true);
+        } else {
+          setUseRealChapters(false);
+        }
+      } catch (err) {
+        console.error('Error fetching chapters:', err);
+        setUseRealChapters(false);
+      } finally {
+        setLoadingChapters(false);
+      }
+    };
+
+    fetchChapters();
+  }, [manga, id]);
+
+  // Fetch rating stats
+  useEffect(() => {
+    const fetchRatings = async () => {
+      if (!manga) return;
+
+      try {
+        const stats = await mangaService.getMangaRatings(id);
+        setRatingStats(stats);
+        setUserRating(stats.user_rating || null);
+      } catch (err) {
+        console.error('Error fetching ratings:', err);
+      }
+    };
+
+    fetchRatings();
+  }, [manga, id]);
+
+  const handleRating = async (rating) => {
     if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+
+    try {
+      setSubmittingRating(true);
+      
+      // If clicking the same star, unrate (delete rating)
+      if (userRating === rating) {
+        await mangaService.deleteRating(id);
+        // Fetch updated stats after deletion
+        const stats = await mangaService.getMangaRatings(id);
+        setRatingStats(stats);
+        setUserRating(null);
+      } else {
+        // Submit new rating
+        const stats = await mangaService.rateManga(id, rating);
+        setRatingStats(stats);
+        setUserRating(stats.user_rating || null);
+      }
+    } catch (err) {
+      console.error('Error rating manga:', err);
+      alert('Failed to submit rating');
+    } finally {
+      setSubmittingRating(false);
+    }
+  };
+
+  const handleAddToLibrary = async (status) => {
+    if (!isAuthenticated || !authService.getToken()) {
+      alert('Please log in to add manga to your library');
       navigate('/login');
       return;
     }
 
     setUpdating(true);
     try {
-      await userService.addToLibrary(parseInt(id), 'plan_to_read');
+      await userService.addToLibrary(id, status); // Use id directly as string with selected status
       setInLibrary(true);
+      setShowAddModal(false);
       await fetchMangaDetail(); // Refresh to get library entry
     } catch (err) {
       console.error('Error adding to library:', err);
-      alert(err.message);
+      if (err.message && err.message.includes('No authentication token')) {
+        alert('Your session has expired. Please log in again.');
+        navigate('/login');
+      } else {
+        alert(err.error || err.message || 'Failed to add to library');
+      }
     } finally {
       setUpdating(false);
     }
+  };
+
+  const handleRemoveFromLibrary = async () => {
+    if (!isAuthenticated || !authService.getToken()) {
+      alert('Please log in to manage your library');
+      navigate('/login');
+      return;
+    }
+
+    setUpdating(true);
+    try {
+      await userService.removeFromLibrary(id);
+      setInLibrary(false);
+      setLibraryEntry(null);
+      setShowAddModal(false);
+      await fetchMangaDetail(); // Refresh
+    } catch (err) {
+      console.error('Error removing from library:', err);
+      alert(err.error || err.message || 'Failed to remove from library');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleOpenAddModal = () => {
+    if (!isAuthenticated || !authService.getToken()) {
+      alert('Please log in to add manga to your library');
+      navigate('/login');
+      return;
+    }
+    setShowAddModal(true);
   };
 
   const handleUpdateProgress = async (currentChapter) => {
@@ -124,6 +270,126 @@ const MangaDetail = () => {
       alert(err.message);
     } finally {
       setUpdating(false);
+    }
+  };
+
+  // Generate chapters with volume information
+  const chapters = useMemo(() => {
+    if (!manga) return [];
+    // Use real chapters if available, otherwise generate from total_chapters
+    if (useRealChapters && realChapters.length > 0) {
+      return realChapters.map(ch => ({
+        id: ch.id,
+        number: parseFloat(ch.chapter_number) || 0,
+        volume: ch.volume_number ? parseInt(ch.volume_number) : null,
+        title: ch.title || `Chapter ${ch.chapter_number}`,
+        publishDate: ch.published_at || null,
+        read: false,
+        source: ch.source || 'mangadex',
+        pages: ch.pages || 0,
+        external_url: ch.external_url || null,
+        is_external: ch.is_external || false
+      }));
+    }
+    return mangaService.getChapterList(manga);
+  }, [manga, useRealChapters, realChapters]);
+
+  // Group chapters by volume
+  const volumeGroups = useMemo(() => {
+    const groups = {};
+    chapters.forEach(chapter => {
+      // Use 'no-volume' key for chapters without volume info instead of null
+      const volumeKey = chapter.volume !== null && chapter.volume !== undefined ? chapter.volume : 'no-volume';
+      if (!groups[volumeKey]) {
+        groups[volumeKey] = [];
+      }
+      groups[volumeKey].push(chapter);
+    });
+    return groups;
+  }, [chapters]);
+
+  // Check if we have meaningful volumes (more than just no-volume group)
+  const hasVolumes = useMemo(() => {
+    const keys = Object.keys(volumeGroups);
+    // Has volumes if there are volume keys other than 'no-volume', or if only 'no-volume' exists
+    return keys.length > 0 && (keys.some(k => k !== 'no-volume') || keys.length === 1);
+  }, [volumeGroups]);
+  const itemsPerPage = hasVolumes ? 1 : 20; // 1 volume per page or 20 chapters per page
+
+  // Get paginated content
+  const paginatedContent = useMemo(() => {
+    if (hasVolumes) {
+      const volumes = Object.keys(volumeGroups)
+        .map(v => v === 'no-volume' ? -1 : Number(v))
+        .sort((a, b) => sortAscending ? a - b : b - a);
+      const currentVolumeNum = volumes[currentPage - 1];
+      if (currentVolumeNum === undefined) return [];
+      const currentVolume = currentVolumeNum === -1 ? 'no-volume' : currentVolumeNum;
+      const volumeChapters = volumeGroups[currentVolume];
+      if (!volumeChapters || volumeChapters.length === 0) return [];
+      return sortAscending ? volumeChapters : [...volumeChapters].reverse();
+    } else {
+      const startIdx = (currentPage - 1) * itemsPerPage;
+      const endIdx = startIdx + itemsPerPage;
+      const sortedChapters = sortAscending ? [...chapters] : [...chapters].reverse();
+      return sortedChapters.slice(startIdx, endIdx);
+    }
+  }, [chapters, volumeGroups, hasVolumes, currentPage, itemsPerPage, sortAscending]);
+
+  const totalPages = useMemo(() => {
+    if (hasVolumes) {
+      return Object.keys(volumeGroups).length;
+    }
+    return Math.ceil(chapters.length / itemsPerPage);
+  }, [chapters.length, hasVolumes, volumeGroups, itemsPerPage]);
+
+  const currentVolume = useMemo(() => {
+    if (hasVolumes) {
+      const volumes = Object.keys(volumeGroups)
+        .map(v => v === 'no-volume' ? -1 : Number(v))
+        .sort((a, b) => sortAscending ? a - b : b - a);
+      const volumeNum = volumes[currentPage - 1];
+      return volumeNum === -1 ? 'no-volume' : volumeNum;
+    }
+    return null;
+  }, [hasVolumes, volumeGroups, currentPage, sortAscending]);
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
+  };
+
+  const handleVolumeSelect = (volume) => {
+    const volumes = Object.keys(volumeGroups)
+      .map(v => v === 'no-volume' ? -1 : Number(v))
+      .sort((a, b) => sortAscending ? a - b : b - a);
+    const volumeNum = volume === 'no-volume' ? -1 : Number(volume);
+    const pageIndex = volumes.indexOf(volumeNum);
+    if (pageIndex !== -1) {
+      setCurrentPage(pageIndex + 1);
+      setShowIndexModal(false);
+    }
+  };
+
+  const toggleSort = () => {
+    setSortAscending(!sortAscending);
+  };
+
+  const handleChapterClick = (chapter) => {
+    // Check if this is an external chapter (licensed manga)
+    if (chapter.is_external && chapter.external_url) {
+      // Open external URL in new tab
+      window.open(chapter.external_url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    if (useRealChapters && chapter.id) {
+      // Navigate to reader with real chapter data
+      navigate(`/read/${id}?chapter=${chapter.id}&source=${chapter.source}&number=${chapter.number}`);
+    } else {
+      // For generated chapters, show info message
+      alert('This manga uses MAL for metadata. We will search MangaDex automatically when you click "Read". If chapters are not found, they may not be available on MangaDex yet.');
     }
   };
 
@@ -192,7 +458,7 @@ const MangaDetail = () => {
               <div className="space-y-3 mb-6">
                 {!inLibrary ? (
                   <button
-                    onClick={handleAddToLibrary}
+                    onClick={handleOpenAddModal}
                     disabled={updating || !isAuthenticated}
                     className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-primary text-white rounded-xl hover:bg-primary/90 transition font-bold shadow-lg shadow-primary/25 disabled:opacity-50"
                   >
@@ -200,9 +466,13 @@ const MangaDetail = () => {
                     <span>{isAuthenticated ? 'Add to Library' : 'Login to Add'}</span>
                   </button>
                 ) : (
-                  <button className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-green-600 text-white rounded-xl font-bold">
+                  <button 
+                    onClick={handleOpenAddModal}
+                    disabled={updating}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-green-600 text-white rounded-xl hover:bg-green-700 transition font-bold disabled:opacity-50"
+                  >
                     <Check className="w-5 h-5" />
-                    <span>In Library</span>
+                    <span>{libraryEntry?.status ? libraryEntry.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'In Library'}</span>
                   </button>
                 )}
 
@@ -283,8 +553,121 @@ const MangaDetail = () => {
               </p>
             </div>
 
-            {/* Genres and Details - keeping original structure below this */}
-            <div style={{display: 'none'}}>
+            {/* Rating Section */}
+            <div className="bg-white dark:bg-[#191022] rounded-2xl p-8 border border-zinc-200 dark:border-zinc-800">
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-white mb-4">Rating</h2>
+              
+              {ratingStats && (
+                <div className="mb-6">
+                  {/* Rating Summary and Distribution in one row */}
+                  <div className="flex items-start gap-6">
+                    {/* Left side - Average Rating */}
+                    <div className="flex flex-col items-center justify-center min-w-[120px]">
+                      <div className="text-5xl font-black text-zinc-900 dark:text-white mb-2">
+                        {ratingStats.average_rating.toFixed(1)}
+                      </div>
+                      <div className="flex gap-1 mb-2">
+                        {[...Array(5)].map((_, i) => (
+                          <Star
+                            key={i}
+                            className={`w-5 h-5 ${
+                              i < Math.round(ratingStats.average_rating)
+                                ? 'fill-yellow-400 text-yellow-400'
+                                : 'text-zinc-300 dark:text-zinc-700'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                        {ratingStats.total_ratings.toLocaleString()} rating{ratingStats.total_ratings !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+
+                    {/* Right side - Rating Distribution */}
+                    {ratingStats.rating_distribution && (
+                      <div className="flex-1 space-y-2">
+                        {[5, 4, 3, 2, 1].map((star) => {
+                          const count = ratingStats.rating_distribution[star] || 0;
+                          const percentage = ratingStats.total_ratings > 0 
+                            ? (count / ratingStats.total_ratings) * 100 
+                            : 0;
+                          
+                          return (
+                            <div key={star} className="flex items-center gap-3">
+                              <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 w-2">
+                                {star}
+                              </span>
+                              <div className="flex-1 bg-zinc-200 dark:bg-zinc-800 rounded-full h-2.5 overflow-hidden">
+                                <div
+                                  className="bg-green-500 h-full rounded-full transition-all duration-300"
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-zinc-500 dark:text-zinc-500 w-8 text-right">
+                                {count > 0 ? count : ''}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {isAuthenticated ? (
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3 text-center">
+                    {userRating ? 'Your Rating' : 'Rate this manga'}
+                  </h3>
+                  <div className="flex justify-center gap-2">
+                    {[...Array(5)].map((_, i) => {
+                      const rating = i + 1;
+                      // Fill stars from left to right up to the rating value
+                      const isHovered = hoverRating > 0 && rating <= hoverRating;
+                      const isSelected = userRating && rating <= userRating;
+                      const shouldHighlight = isHovered || (isSelected && !hoverRating);
+
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => handleRating(rating)}
+                          onMouseEnter={() => setHoverRating(rating)}
+                          onMouseLeave={() => setHoverRating(0)}
+                          disabled={submittingRating}
+                          className="transition-all duration-200 hover:scale-110 disabled:opacity-50"
+                          title={`Rate ${rating}/5`}
+                        >
+                          <Star
+                            className={`w-9 h-9 ${
+                              shouldHighlight
+                                ? 'fill-yellow-400 text-yellow-400'
+                                : 'text-zinc-300 dark:text-zinc-700'
+                            } transition-colors`}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {userRating && (
+                    <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400 text-center">
+                      You rated this manga {userRating}/5
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-zinc-600 dark:text-zinc-400 mb-3">
+                    Sign in to rate this manga
+                  </p>
+                  <button
+                    onClick={() => navigate('/login')}
+                    className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition"
+                  >
+                    Sign In
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Genres and Details */}
@@ -337,51 +720,153 @@ const MangaDetail = () => {
             {/* Chapters List */}
             <div className="bg-white dark:bg-[#191022] rounded-2xl p-8 border border-zinc-200 dark:border-zinc-800">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-zinc-900 dark:text-white">Chapters</h2>
+                <h2 className="text-xl font-bold text-zinc-900 dark:text-white">
+                  Chapters {hasVolumes && currentVolume && `- Volume ${currentVolume}`}
+                </h2>
                 <div className="flex gap-2">
-                  <button className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition">
-                    <Search className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
+                  <button 
+                    onClick={() => setShowIndexModal(true)}
+                    className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                    title="Index"
+                  >
+                    <List className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
                   </button>
-                  <button className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition">
-                    <TrendingUp className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
+                  <button 
+                    onClick={toggleSort}
+                    className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                    title={sortAscending ? "Sort Descending" : "Sort Ascending"}
+                  >
+                    {sortAscending ? (
+                      <ArrowUpCircle className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
+                    ) : (
+                      <ArrowDownCircle className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
+                    )}
                   </button>
                 </div>
               </div>
 
-              {manga.total_chapters && manga.total_chapters > 0 ? (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {[...Array(Math.min(10, manga.total_chapters))].map((_, idx) => {
-                    const chapterNum = manga.total_chapters - idx;
-                    const isRead = libraryEntry && libraryEntry.current_chapter >= chapterNum;
-                    return (
-                      <div
-                        key={idx}
-                        className={`flex items-center justify-between p-4 rounded-lg border transition-colors cursor-pointer ${
-                          isRead
-                            ? 'bg-primary/5 border-primary/20'
-                            : 'bg-zinc-50 dark:bg-zinc-800/50 border-zinc-200 dark:border-zinc-700 hover:border-primary/50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          {isRead && <Check className="w-5 h-5 text-primary" />}
-                          <div>
-                            <p className="font-semibold text-zinc-900 dark:text-white">
-                              Chapter {chapterNum}
-                            </p>
-                            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                              {manga.publication_year ? `Published ${manga.publication_year}` : 'Publication date unknown'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {manga.total_chapters > 10 && (
-                    <p className="text-center text-sm text-zinc-500 dark:text-zinc-400 pt-4">
-                      Showing latest 10 of {manga.total_chapters} chapters
-                    </p>
-                  )}
+              {/* Info Notice for MAL manga without chapters */}
+              {!useRealChapters && !loadingChapters && (
+                <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <BookOpen className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-amber-800 dark:text-amber-200">
+                      <p className="font-semibold mb-1">No chapters found</p>
+                      <p>This manga is not currently available for reading on MangaDex. Chapter availability depends on scanlation groups uploading to MangaDex.</p>
+                    </div>
+                  </div>
                 </div>
+              )}
+
+              {/* Info Notice for successfully loaded chapters */}
+              {useRealChapters && realChapters.length > 0 && (
+                <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <BookOpen className="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-green-800 dark:text-green-200">
+                      <p className="font-semibold mb-1">Chapters available from MangaDex</p>
+                      <p>Found {realChapters.length} chapter{realChapters.length !== 1 ? 's' : ''} available for reading.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Display chapters if we have real chapters OR if manga has total_chapters from MAL */}
+              {(useRealChapters && realChapters.length > 0) || (manga.total_chapters && manga.total_chapters > 0) ? (
+                <>
+                  {loadingChapters && (
+                    <div className="text-center py-4">
+                      <div className="inline-flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
+                        <span className="text-sm">Loading chapters...</span>
+                      </div>
+                    </div>
+                  )}
+                  {paginatedContent.length > 0 && (
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {paginatedContent.map((chapter) => {
+                      const isRead = libraryEntry && libraryEntry.current_chapter >= chapter.number;
+                      return (
+                        <div
+                          key={chapter.id || chapter.number}
+                          onClick={() => handleChapterClick(chapter)}
+                          className={`flex items-center justify-between p-4 rounded-lg border transition-colors cursor-pointer ${
+                            isRead
+                              ? 'bg-primary/5 border-primary/20 hover:bg-primary/10'
+                              : 'bg-zinc-50 dark:bg-zinc-800/50 border-zinc-200 dark:border-zinc-700 hover:border-primary/50 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            {isRead && <Check className="w-5 h-5 text-primary" />}
+                            <div>
+                              <p className="font-semibold text-zinc-900 dark:text-white">
+                                Chapter {chapter.number}
+                                {chapter.title && chapter.title !== `Chapter ${chapter.number}` && (
+                                  <span className="text-sm font-normal text-zinc-500 dark:text-zinc-400 ml-2">
+                                    - {chapter.title}
+                                  </span>
+                                )}
+                              </p>
+                              <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+                                <span>{chapter.publishDate || 'Publication date unknown'}</span>
+                                {useRealChapters && chapter.pages > 0 && (
+                                  <span>• {chapter.pages} pages</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {useRealChapters && (
+                            <div className="flex items-center gap-2">
+                              {chapter.is_external ? (
+                                <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded font-medium">
+                                  External
+                                </span>
+                              ) : (
+                                <span className="text-xs px-2 py-1 bg-zinc-200 dark:bg-zinc-700 rounded text-zinc-600 dark:text-zinc-400">
+                                  {chapter.source === 'mangadex' ? 'MangaDex' : 'MangaPlus'}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  )}
+
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-800">
+                      <button
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                        Previous
+                      </button>
+                      
+                      <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                        {hasVolumes ? (
+                          <span>
+                            {currentVolume === 'no-volume' ? 'Chapters (No Volume)' : `Volume ${currentVolume}`} 
+                          </span>
+                        ) : (
+                          <span>Page {currentPage} of {totalPages}</span>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className="flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                      >
+                        Next
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-center py-8">
                   <Book className="w-12 h-12 mx-auto mb-3 text-zinc-300 dark:text-zinc-700" />
@@ -438,6 +923,128 @@ const MangaDetail = () => {
             </div>
           </div>
         </motion.div>
+
+        {/* Index Modal */}
+        <AnimatePresence>
+          {showIndexModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+              onClick={() => setShowIndexModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white dark:bg-[#191022] rounded-2xl p-6 max-w-2xl w-full max-h-[80vh] overflow-hidden border border-zinc-200 dark:border-zinc-800"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-zinc-900 dark:text-white">Index</h2>
+                  <button
+                    onClick={() => setShowIndexModal(false)}
+                    className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition"
+                  >
+                    <X className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
+                  </button>
+                </div>
+
+                <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-4">
+                  The Index ignores user blocks, group blocks, and language filters.
+                </p>
+
+                {hasVolumes ? (
+                  <div className="overflow-y-auto max-h-[60vh] space-y-2">
+                    {Object.keys(volumeGroups)
+                      .map(v => v === 'no-volume' ? -1 : Number(v))
+                      .sort((a, b) => a - b)
+                      .map((volumeNum) => {
+                        const volume = volumeNum === -1 ? 'no-volume' : volumeNum;
+                        const volumeChapters = volumeGroups[volume];
+                        if (!volumeChapters || volumeChapters.length === 0) return null;
+                        
+                        const chapterRange = `Chapter ${volumeChapters[0]?.number || '?'} - ${volumeChapters[volumeChapters.length - 1]?.number || '?'}`;
+                        const chapterCount = volumeChapters.length;
+                        const isCurrentVolume = volume === currentVolume;
+
+                        return (
+                          <button
+                            key={volume}
+                            onClick={() => handleVolumeSelect(volume)}
+                            className={`w-full text-left p-4 rounded-lg border transition-all ${
+                              isCurrentVolume
+                                ? 'bg-primary/10 border-primary/50 ring-2 ring-primary/20'
+                                : 'bg-zinc-50 dark:bg-zinc-800/50 border-zinc-200 dark:border-zinc-700 hover:border-primary/50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-bold text-zinc-900 dark:text-white">
+                                  {volume === 'no-volume' ? 'Chapters (No Volume)' : `Volume ${volume}`}
+                                </p>
+                                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                                  {chapterRange} ({chapterCount})
+                                </p>
+                              </div>
+                              {isCurrentVolume && (
+                                <Check className="w-5 h-5 text-primary" />
+                              )}
+                            </div>
+                          </button>
+                        );
+                      }).filter(Boolean)}
+                  </div>
+                ) : (
+                  <div className="overflow-y-auto max-h-[60vh] space-y-1">
+                    {[...Array(totalPages)].map((_, pageIdx) => {
+                      const startChapter = pageIdx * itemsPerPage + 1;
+                      const endChapter = Math.min((pageIdx + 1) * itemsPerPage, chapters.length);
+                      const isCurrentPage = pageIdx + 1 === currentPage;
+
+                      return (
+                        <button
+                          key={pageIdx}
+                          onClick={() => {
+                            setCurrentPage(pageIdx + 1);
+                            setShowIndexModal(false);
+                          }}
+                          className={`w-full text-left p-3 rounded-lg border transition-all ${
+                            isCurrentPage
+                              ? 'bg-primary/10 border-primary/50 ring-2 ring-primary/20'
+                              : 'bg-zinc-50 dark:bg-zinc-800/50 border-zinc-200 dark:border-zinc-700 hover:border-primary/50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-semibold text-zinc-900 dark:text-white">
+                                Chapters {startChapter} - {endChapter}
+                              </p>
+                            </div>
+                            {isCurrentPage && (
+                              <Check className="w-5 h-5 text-primary" />
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Add to Library Modal */}
+        <AddToLibraryModal
+          isOpen={showAddModal}
+          onClose={() => setShowAddModal(false)}
+          manga={manga}
+          onAdd={handleAddToLibrary}
+          onRemove={handleRemoveFromLibrary}
+          currentStatus={libraryEntry?.status}
+        />
       </div>
     </div>
   );

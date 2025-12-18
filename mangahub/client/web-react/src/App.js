@@ -9,8 +9,10 @@ import Register from './pages/Register';
 import Browse from './pages/Browse';
 import Library from './pages/Library';
 import MangaDetail from './pages/MangaDetail';
+import ChapterReader from './pages/ChapterReader';
 import ChatHub from './pages/ChatHub';
 import GeneralChat from './pages/GeneralChat';
+import GRPCTestPage from './pages/GRPCTestPage';
 import authService from './services/authService';
 import websocketService from './services/websocketService';
 import './App.css';
@@ -24,6 +26,7 @@ const ProtectedRoute = ({ children }) => {
 const AppLayout = () => {
   const location = useLocation();
   const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+  const isReaderPage = location.pathname.startsWith('/read');
   const [notifications, setNotifications] = useState([]);
   const wsInitializedRef = useRef(false);
 
@@ -77,7 +80,7 @@ const AppLayout = () => {
 
   return (
     <div className="App min-h-screen flex flex-col bg-gray-50">
-      <Header />
+      {!isReaderPage && <Header />}
       <NotificationContainer 
         notifications={notifications}
         removeNotification={removeNotification}
@@ -90,6 +93,7 @@ const AppLayout = () => {
           {/* Public routes - no login required */}
           <Route path="/browse" element={<Browse />} />
           <Route path="/manga/:id" element={<MangaDetail />} />
+          <Route path="/read/:mangaId" element={<ChapterReader />} />
           {/* Protected routes - login required */}
           <Route path="/library" element={
             <ProtectedRoute>
@@ -106,9 +110,14 @@ const AppLayout = () => {
               <GeneralChat />
             </ProtectedRoute>
           } />
+          <Route path="/grpc-test" element={
+            <ProtectedRoute>
+              <GRPCTestPage />
+            </ProtectedRoute>
+          } />
         </Routes>
       </main>
-      {!isAuthPage && <Footer />}
+      {!isAuthPage && !isReaderPage && <Footer />}
     </div>
   );
 };
