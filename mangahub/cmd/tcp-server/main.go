@@ -9,9 +9,13 @@ import (
 )
 
 func main() {
-	port := ":9000"
+	tcpPort := ":9000"
+	httpPort := ":9001"
 
-	server := tcp.NewProgressSyncServer(port)
+	server := tcp.NewProgressSyncServer(tcpPort)
+
+	// Start HTTP trigger API in background
+	go server.StartHTTPTrigger(httpPort)
 
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)

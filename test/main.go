@@ -1,23 +1,25 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
 	"mangahub/internal/auth"
 	"mangahub/internal/external"
 	"mangahub/internal/manga"
-	"mangahub/internal/udp"
 	"mangahub/internal/user"
 	internalWebsocket "mangahub/internal/websocket"
 	"mangahub/pkg/database"
 	"mangahub/pkg/middleware"
 	"mangahub/pkg/models"
 	"mangahub/pkg/utils"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,14 +34,13 @@ type APIServer struct {
 	MALClient    *external.MALClient
 	JikanClient  *external.JikanClient
 	Port         string
-	// WebSocket chat hub for manga-specific chats
-	ChatHub *internalWebsocket.ChatHub
+	// TCP client connection to broadcast progress updates
+	tcpConn net.Conn
+	tcpMu   sync.Mutex
+	// WebSocket room hub for manga-specific chats
+	RoomHub *internalWebsocket.RoomHub
 	// WebSocket upgrader
 	upgrader internalWebsocket.Upgrader
-	// HTTP client for communicating with standalone UDP server
-	udpServerURL string
-	tcpServerURL string
-	httpClient   *http.Client
 }
 
 // NewAPIServer creates a new API server instance
@@ -98,7 +99,7 @@ func NewAPIServer() *APIServer {
 		MALClient:    external.NewMALClient(),
 		JikanClient:  external.NewJikanClient(),
 		Port:         getPort(),
-		ChatHub:      internalWebsocket.NewChatHub(),
+		RoomHub:      internalWebsocket.NewRoomHub(),
 		upgrader: internalWebsocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -112,14 +113,10 @@ func NewAPIServer() *APIServer {
 
 	// Start WebSocket chat hub
 	// WebSocket rooms are created on demand when users join
-	log.Println("WebSocket ChatHub initialized")
+	log.Println("WebSocket RoomHub initialized")
 
-	server.httpClient = &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	server.initializeTCP()
-	server.initializeUDP()
+	// Connect to TCP server for broadcasting progress updates
+	go server.connectToTCPServer()
 
 	// Setup routes
 	server.setupRoutes()
@@ -332,10 +329,11 @@ func (s *APIServer) setupRoutes() {
 			}
 
 			// WebSocket chat endpoint (protected - requires authentication)
-			protected.GET("/ws/chat", internalWebsocket.HandleWebSocketChat(s.ChatHub, s.upgrader))
+			protected.GET("/ws/chat", internalWebsocket.HandleWebSocketChat(s.RoomHub, s.upgrader))
 		}
+
 		// WebSocket stats endpoint (public for monitoring)
-		v1.GET("/ws/stats", internalWebsocket.GetWebSocketStats(s.ChatHub))
+		v1.GET("/ws/stats", internalWebsocket.GetWebSocketStats(s.RoomHub))
 	}
 }
 
@@ -447,7 +445,6 @@ func (s *APIServer) addToLibrary(c *gin.Context) {
 // Update progress endpoint
 func (s *APIServer) updateProgress(c *gin.Context) {
 	userID := c.GetString("user_id")
-	userName := c.GetString("username")
 
 	var req models.UpdateProgressRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -466,11 +463,8 @@ func (s *APIServer) updateProgress(c *gin.Context) {
 		return
 	}
 
-	// Trigger TCP progress update broadcast via HTTP
-	go s.triggerTCPBroadcast(userID, userName, req.MangaID, req.CurrentChapter)
-
-	// Broadcast progress update to WebSocket clients in the manga's chat room
-	go s.ChatHub.BroadcastProgressUpdate(userID, userName, req.MangaID, req.CurrentChapter)
+	// Broadcast progress update to TCP server
+	go s.broadcastProgressUpdate(userID, req.MangaID, req.CurrentChapter)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Progress updated successfully"})
 }
@@ -738,21 +732,6 @@ func (s *APIServer) createManga(c *gin.Context) {
 		return
 	}
 
-	// Send UDP notification for new manga via HTTP trigger
-	go s.triggerUDPNotification(udp.Notification{
-		Type:      "manga_update",
-		MangaID:   createdManga.ID,
-		Message:   fmt.Sprintf("New manga added: %s by %s", createdManga.Title, createdManga.Author),
-		Timestamp: time.Now().Unix(),
-	})
-
-	// Also broadcast to WebSocket clients
-	s.ChatHub.BroadcastNotification(
-		createdManga.ID,
-		"manga_update",
-		fmt.Sprintf("📚 New manga added: %s by %s", createdManga.Title, createdManga.Author),
-	)
-
 	c.JSON(http.StatusCreated, createdManga)
 }
 
@@ -787,31 +766,6 @@ func (s *APIServer) updateManga(c *gin.Context) {
 		}
 		return
 	}
-
-	// Send UDP notification for manga update via HTTP trigger
-	var notification udp.Notification
-	var wsMessage string
-	if req.TotalChapters > 0 {
-		notification = udp.Notification{
-			Type:      "chapter_release",
-			MangaID:   updatedManga.ID,
-			Message:   fmt.Sprintf("New chapter %d released for %s", req.TotalChapters, updatedManga.Title),
-			Timestamp: time.Now().Unix(),
-		}
-		wsMessage = fmt.Sprintf("📖 New chapter %d released for %s", req.TotalChapters, updatedManga.Title)
-	} else {
-		notification = udp.Notification{
-			Type:      "manga_update",
-			MangaID:   updatedManga.ID,
-			Message:   fmt.Sprintf("Manga updated: %s", updatedManga.Title),
-			Timestamp: time.Now().Unix(),
-		}
-		wsMessage = fmt.Sprintf("🔄 Manga updated: %s", updatedManga.Title)
-	}
-	go s.triggerUDPNotification(notification)
-
-	// Also broadcast to WebSocket clients
-	s.ChatHub.BroadcastNotification(updatedManga.ID, notification.Type, wsMessage)
 
 	c.JSON(http.StatusOK, updatedManga)
 }
@@ -1138,8 +1092,7 @@ func (s *APIServer) getMALRecommendations(c *gin.Context) {
 // Start starts the HTTP server
 func (s *APIServer) Start() error {
 	log.Printf("Starting API server on port %s", s.Port)
-	// return s.Router.Run(":" + s.Port)
-	return s.Router.Run("0.0.0.0:8080")
+	return s.Router.Run(":" + s.Port)
 }
 
 // Bulk import manga endpoint (admin only)
@@ -1380,27 +1333,81 @@ func (s *APIServer) validateSingleMangaData(manga models.Manga) error {
 	return nil
 }
 
-func (s *APIServer) initializeTCP() {
-	// Configure TCP server URL
-	tcpServerHost := os.Getenv("TCP_SERVER_HOST")
-	if tcpServerHost == "" {
-		tcpServerHost = "http://localhost:9001" // Default TCP server HTTP trigger API
+// connectToTCPServer connects to the TCP progress sync server as a client
+func (s *APIServer) connectToTCPServer() {
+	tcpAddr := os.Getenv("TCP_SERVER_ADDR")
+	if tcpAddr == "" {
+		tcpAddr = "localhost:9000" // Default TCP server address
 	}
-	s.tcpServerURL = tcpServerHost
-	log.Printf("TCP Server HTTP API configured at %s", s.tcpServerURL)
-}
 
-// triggerTCPBroadcast sends a progress update to the standalone TCP server via HTTP
-func (s *APIServer) triggerTCPBroadcast(userID, userName, mangaID string, chapter int) {
-	if s.tcpServerURL == "" || s.httpClient == nil {
-		log.Println("TCP server not configured")
+	maxRetries := 3
+	retryDelay := 2 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		if i == 0 {
+			log.Printf("Attempting to connect to TCP server at %s...", tcpAddr)
+		}
+
+		conn, err := net.Dial("tcp", tcpAddr)
+		if err != nil {
+			if i == maxRetries-1 {
+				log.Printf("INFO: TCP server not available. Progress sync features disabled. (This is optional)")
+			}
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		s.tcpMu.Lock()
+		s.tcpConn = conn
+		s.tcpMu.Unlock()
+
+		log.Printf("Successfully connected to TCP server at %s", tcpAddr)
+
+		// Keep connection alive and handle reconnection
+		go s.maintainTCPConnection(tcpAddr)
 		return
 	}
 
-	// Create progress update
+	// TCP server is optional - continue without it
+	log.Printf("INFO: Running without TCP server connection. Real-time progress sync disabled.")
+}
+
+// maintainTCPConnection monitors the TCP connection and reconnects if needed
+func (s *APIServer) maintainTCPConnection(tcpAddr string) {
+	reader := bufio.NewReader(s.tcpConn)
+	for {
+		// Read from connection to detect disconnection
+		_, err := reader.ReadByte()
+		if err != nil {
+			log.Printf("TCP connection lost. Running without TCP server.")
+			s.tcpMu.Lock()
+			if s.tcpConn != nil {
+				s.tcpConn.Close()
+				s.tcpConn = nil
+			}
+			s.tcpMu.Unlock()
+
+			// Don't auto-reconnect to avoid spam
+			// Server can function without TCP connection
+			return
+		}
+	}
+}
+
+// broadcastProgressUpdate sends progress update to TCP server for broadcasting
+func (s *APIServer) broadcastProgressUpdate(userID, mangaID string, chapter int) {
+	s.tcpMu.Lock()
+	conn := s.tcpConn
+	s.tcpMu.Unlock()
+
+	if conn == nil {
+		// TCP connection not available - this is fine, server works without it
+		return
+	}
+
+	// Create progress update message
 	type ProgressUpdate struct {
 		UserID    string `json:"user_id"`
-		Username  string `json:"username"`
 		MangaID   string `json:"manga_id"`
 		Chapter   int    `json:"chapter"`
 		Timestamp int64  `json:"timestamp"`
@@ -1408,7 +1415,6 @@ func (s *APIServer) triggerTCPBroadcast(userID, userName, mangaID string, chapte
 
 	update := ProgressUpdate{
 		UserID:    userID,
-		Username:  userName,
 		MangaID:   mangaID,
 		Chapter:   chapter,
 		Timestamp: time.Now().Unix(),
@@ -1421,69 +1427,31 @@ func (s *APIServer) triggerTCPBroadcast(userID, userName, mangaID string, chapte
 		return
 	}
 
-	// Send POST request to TCP server's HTTP trigger
-	resp, err := s.httpClient.Post(
-		s.tcpServerURL+"/trigger",
-		"application/json",
-		strings.NewReader(string(data)),
-	)
-	if err != nil {
-		log.Printf("Failed to trigger TCP broadcast: %v (Is TCP server running on %s?)", err, s.tcpServerURL)
-		return
-	}
-	defer resp.Body.Close()
+	// Send to TCP server (with newline delimiter)
+	data = append(data, '\n')
 
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("TCP server returned status %d", resp.StatusCode)
-		return
-	}
+	s.tcpMu.Lock()
+	defer s.tcpMu.Unlock()
 
-	log.Printf("Successfully triggered TCP broadcast: User=%s, Manga=%s, Chapter=%d", userID, mangaID, chapter)
+	if s.tcpConn != nil {
+		s.tcpConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		_, err = s.tcpConn.Write(data)
+		if err != nil {
+			log.Printf("Failed to send progress update to TCP server: %v", err)
+			s.tcpConn.Close()
+			s.tcpConn = nil
+		} else {
+			log.Printf("Broadcasted progress update to TCP server: User=%s, Manga=%s, Chapter=%d", userID, mangaID, chapter)
+		}
+	}
 }
 
-func (s *APIServer) initializeUDP() {
-	// Initialize HTTP client for UDP server communication
-	udpServerHost := os.Getenv("UDP_SERVER_HOST")
-	if udpServerHost == "" {
-		udpServerHost = "http://localhost:8082" // Default UDP server HTTP trigger API
-	}
-	s.udpServerURL = udpServerHost
-	log.Printf("UDP Server HTTP API configured at %s", s.udpServerURL)
-}
+// WebSocket chat handler moved to internal/websocket/handlers.go
+// The route now delegates to internalWebsocket.HandleWebSocketChat
 
-// triggerUDPNotification sends a notification to the standalone UDP server via HTTP
-func (s *APIServer) triggerUDPNotification(notification udp.Notification) {
-	if s.udpServerURL == "" || s.httpClient == nil {
-		log.Println("UDP server not configured")
-		return
-	}
+// WebSocket read loop moved to internal/websocket/handlers.go
 
-	// Marshal notification to JSON
-	data, err := json.Marshal(notification)
-	if err != nil {
-		log.Printf("Failed to marshal notification: %v", err)
-		return
-	}
-
-	// Send POST request to UDP server's HTTP trigger
-	resp, err := s.httpClient.Post(
-		s.udpServerURL+"/trigger",
-		"application/json",
-		strings.NewReader(string(data)),
-	)
-	if err != nil {
-		log.Printf("Failed to trigger UDP notification: %v (Is UDP server running on %s?)", err, s.udpServerURL)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("UDP server returned status %d", resp.StatusCode)
-		return
-	}
-
-	log.Printf("Successfully triggered UDP notification: %s - %s", notification.Type, notification.Message)
-}
+// WebSocket stats handler moved to internal/websocket/handlers.go
 
 func main() {
 	// Load environment variables from .env file

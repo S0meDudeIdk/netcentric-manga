@@ -49,12 +49,44 @@ const authService = {
     localStorage.removeItem('user');
   },
 
+  isTokenExpired: (token) => {
+    if (!token) return true;
+    
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const expirationTime = payload.exp * 1000; // Convert to milliseconds
+      return Date.now() >= expirationTime;
+    } catch (error) {
+      console.error('Error parsing token:', error);
+      return true;
+    }
+  },
+
   isAuthenticated: () => {
-    return !!localStorage.getItem('token');
+    const token = localStorage.getItem('token');
+    if (!token) return false;
+    
+    // Check if token is expired
+    if (authService.isTokenExpired(token)) {
+      console.warn('Token expired, logging out...');
+      authService.logout();
+      return false;
+    }
+    
+    return true;
   },
 
   getToken: () => {
-    return localStorage.getItem('token');
+    const token = localStorage.getItem('token');
+    
+    // Validate token before returning
+    if (token && authService.isTokenExpired(token)) {
+      console.warn('Token expired, clearing authentication...');
+      authService.logout();
+      return null;
+    }
+    
+    return token;
   },
 
   getUser: () => {

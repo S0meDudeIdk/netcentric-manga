@@ -26,6 +26,9 @@ const ChatHub = () => {
   // User list state
   const [onlineUsers, setOnlineUsers] = useState([]);
   
+  // User progress state - tracks reading progress for each user
+  const [userProgress, setUserProgress] = useState({}); // { user_id: { manga_id, chapter, timestamp } }
+  
   // Hub statistics - keeping for potential future use
   const [, setHubStats] = useState({
     totalUsers: 0,
@@ -141,10 +144,30 @@ const ChatHub = () => {
         }
         break;
         
+      case 'progress_update':
+        // Handle reading progress updates from users
+        if (data.user_id && data.manga_id && data.chapter !== undefined) {
+          setUserProgress(prev => ({
+            ...prev,
+            [data.user_id]: {
+              manga_id: data.manga_id,
+              chapter: data.chapter,
+              username: data.username,
+              timestamp: Date.now()
+            }
+          }));
+          
+          // Optional: Show notification if it's for the current manga
+          if (data.manga_id === mangaId && data.user_id !== currentUser?.user_id) {
+            addNotification(`${data.username || 'Someone'} is reading chapter ${data.chapter}`);
+          }
+        }
+        break;
+        
       default:
         console.log('Unknown message type:', data.type);
     }
-  }, []);
+  }, [mangaId, currentUser, addNotification]);
 
   // WebSocket connection - runs once when manga and user are ready
   useEffect(() => {
@@ -226,7 +249,9 @@ const ChatHub = () => {
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   }, [messages]);
 
   if (loading) {
@@ -330,16 +355,42 @@ const ChatHub = () => {
               <div className="space-y-3 text-sm">
                 <div>
                   <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-1">Status:</p>
-                  <p className="font-semibold text-zinc-900 dark:text-white">{manga.status || 'ongoing'}</p>
+                  <p className={`font-semibold ${
+                    manga.status === 'completed' 
+                      ? 'text-green-600 dark:text-green-400' 
+                      : 'text-blue-600 dark:text-blue-400'
+                  }`}>
+                    {manga.status ? manga.status.charAt(0).toUpperCase() + manga.status.slice(1) : 'Unknown'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-1">Chapters:</p>
-                  <p className="font-semibold text-zinc-900 dark:text-white">N/A</p>
+                  <p className="font-semibold text-zinc-900 dark:text-white">{manga.total_chapters || 'N/A'}</p>
                 </div>
                 <div>
-                  <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-1">Rating:</p>
-                  <p className="font-semibold text-zinc-900 dark:text-white">⭐ N/A</p>
+                  <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-1">Author:</p>
+                  <p className="font-semibold text-zinc-900 dark:text-white">{manga.author || 'Unknown'}</p>
                 </div>
+                {manga.genres && manga.genres.length > 0 && (
+                  <div>
+                    <p className="text-zinc-500 dark:text-zinc-400 text-xs mb-2">Genres:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {manga.genres.slice(0, 3).map((genre, index) => (
+                        <span
+                          key={index}
+                          className="px-2 py-0.5 bg-primary/10 text-primary rounded text-xs font-semibold"
+                        >
+                          {genre}
+                        </span>
+                      ))}
+                      {manga.genres.length > 3 && (
+                        <span className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded text-xs font-semibold">
+                          +{manga.genres.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
 
@@ -374,11 +425,12 @@ const ChatHub = () => {
           </div>
 
           {/* Center - Chat Area */}
-          <div className="lg:col-span-6 h-full">
+          <div className="lg:col-span-6">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white dark:bg-[#191022] rounded-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-hidden"
+              className="bg-white dark:bg-[#191022] rounded-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col"
+              style={{ height: '550px' }}
             >
               {/* Messages Area */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4" style={{ minHeight: 0 }}>
@@ -484,6 +536,12 @@ const ChatHub = () => {
                   </div>
                 ) : (
                   onlineUsers.map((user, index) => {
+                    // Get progress info for this user
+                    const progress = userProgress[user.user_id];
+                    const progressText = progress && progress.manga_id === mangaId
+                      ? `Chapter ${progress.chapter}`
+                      : 'Reading';
+                    
                     return (
                       <motion.div
                         key={user.user_id || index}
@@ -503,7 +561,7 @@ const ChatHub = () => {
                           <p className="font-semibold text-sm text-zinc-900 dark:text-white truncate">
                             {user.username}
                           </p>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400">Reading</p>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">{progressText}</p>
                         </div>
                       </motion.div>
                     );

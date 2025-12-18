@@ -9,13 +9,20 @@ import (
 	"time"
 )
 
+// ClientInfo tracks client metadata
+type ClientInfo struct {
+	Addr     net.UDPAddr
+	LastSeen time.Time
+}
+
 // Simple UDP notifier
 type NotificationServer struct {
 	Port    string
-	Clients []net.UDPAddr
+	Clients map[string]*ClientInfo // key is addr.String()
 	conn    *net.UDPConn
 	mu      sync.Mutex
 }
+
 type Notification struct {
 	Type      string `json:"type"`
 	MangaID   string `json:"manga_id"`
@@ -23,10 +30,15 @@ type Notification struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+const (
+	heartbeatInterval = 30 * time.Second // Send PING every 30s
+	clientTimeout     = 90 * time.Second // Remove client if no response for 90s
+)
+
 func NewNotificationServer(port string) *NotificationServer {
 	return &NotificationServer{
 		Port:    port,
-		Clients: make([]net.UDPAddr, 0),
+		Clients: make(map[string]*ClientInfo),
 	}
 }
 
@@ -44,6 +56,9 @@ func (s *NotificationServer) Start() error {
 	defer conn.Close()
 
 	log.Printf("UDP Notification Server listening on %s", s.Port)
+
+	// Start heartbeat checker in background
+	go s.startHeartbeat()
 
 	buffer := make([]byte, 1024)
 	for {
@@ -67,6 +82,9 @@ func (s *NotificationServer) Start() error {
 		case "UNREGISTER":
 			s.UnregisterClient(*clientAddr)
 			log.Printf("Client unregistered: %s", clientAddr.String())
+		case "PONG":
+			// Client is alive, update lastSeen
+			s.updateClientLastSeen(*clientAddr)
 		}
 	}
 }
@@ -74,31 +92,84 @@ func (s *NotificationServer) Start() error {
 func (s *NotificationServer) RegisterClient(clientAddr net.UDPAddr) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
-	for _, client := range s.Clients {
-		if client.String() == clientAddr.String() {
-			return
+
+	addr := clientAddr.String()
+	if _, exists := s.Clients[addr]; !exists {
+		s.Clients[addr] = &ClientInfo{
+			Addr:     clientAddr,
+			LastSeen: time.Now(),
 		}
+	} else {
+		// Update lastSeen if already registered
+		s.Clients[addr].LastSeen = time.Now()
 	}
-	s.Clients = append(s.Clients, clientAddr)
 }
 
 func (s *NotificationServer) UnregisterClient(clientAddr net.UDPAddr) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
-	for i, client := range s.Clients {
-		if client.String() == clientAddr.String() {
-			s.Clients = append(s.Clients[:i], s.Clients[i+1:]...)
+
+	delete(s.Clients, clientAddr.String())
+}
+
+// updateClientLastSeen updates the last seen timestamp for a client
+func (s *NotificationServer) updateClientLastSeen(clientAddr net.UDPAddr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	addr := clientAddr.String()
+	if client, exists := s.Clients[addr]; exists {
+		client.LastSeen = time.Now()
+	}
+}
+
+// startHeartbeat periodically pings clients and removes dead ones
+func (s *NotificationServer) startHeartbeat() {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.mu.Lock()
+		if s.conn == nil {
+			s.mu.Unlock()
 			return
 		}
+
+		now := time.Now()
+		deadClients := []string{}
+
+		// Check for dead clients and send PING to alive ones
+		for addr, client := range s.Clients {
+			if now.Sub(client.LastSeen) > clientTimeout {
+				log.Printf("Client %s timed out (no response for %v), removing...", addr, clientTimeout)
+				deadClients = append(deadClients, addr)
+			} else {
+				// Send PING
+				_, err := s.conn.WriteToUDP([]byte("PING"), &client.Addr)
+				if err != nil {
+					log.Printf("Failed to ping client %s: %v", addr, err)
+					deadClients = append(deadClients, addr)
+				}
+			}
+		}
+
+		// Remove dead clients
+		for _, addr := range deadClients {
+			delete(s.Clients, addr)
+		}
+
+		if len(deadClients) > 0 {
+			log.Printf("Removed %d dead client(s). Active clients: %d", len(deadClients), len(s.Clients))
+		}
+
+		s.mu.Unlock()
 	}
 }
 
 func (s *NotificationServer) BroadcastNotification(notification Notification) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if len(s.Clients) == 0 {
 		log.Println("No clients registered for notifications")
 		return nil
@@ -118,19 +189,18 @@ func (s *NotificationServer) BroadcastNotification(notification Notification) er
 	}
 
 	// Send to all registered clients
-	failedClients := []int{}
-	for i, client := range s.Clients {
-		_, err := s.conn.WriteToUDP(data, &client)
+	failedClients := []string{}
+	for addr, client := range s.Clients {
+		_, err := s.conn.WriteToUDP(data, &client.Addr)
 		if err != nil {
-			log.Printf("Error sending notification to %s: %v", client.String(), err)
-			failedClients = append(failedClients, i)
+			log.Printf("Error sending notification to %s: %v", addr, err)
+			failedClients = append(failedClients, addr)
 		}
 	}
 
 	// Remove failed clients
-	for i := len(failedClients) - 1; i >= 0; i-- {
-		idx := failedClients[i]
-		s.Clients = append(s.Clients[:idx], s.Clients[idx+1:]...)
+	for _, addr := range failedClients {
+		delete(s.Clients, addr)
 	}
 
 	log.Printf("Notification broadcast to %d clients", len(s.Clients))
@@ -167,7 +237,7 @@ func (s *NotificationServer) GetClientCount() int {
 func (s *NotificationServer) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.conn != nil {
 		log.Println("Closing UDP server...")
 		return s.conn.Close()
