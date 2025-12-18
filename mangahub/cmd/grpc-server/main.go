@@ -38,7 +38,7 @@ func main() {
 	}
 
 	// Get TCP server address from environment
-	tcpAddress := os.Getenv("TCP_SERVER_ADDRESS")
+	tcpAddress := os.Getenv("TCP_SERVER_ADDR")
 	if tcpAddress == "" {
 		tcpAddress = "localhost:9000"
 	}

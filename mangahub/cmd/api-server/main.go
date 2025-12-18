@@ -1599,7 +1599,7 @@ func (s *APIServer) validateSingleMangaData(manga models.Manga) error {
 func (s *APIServer) connectToGRPCServer() {
 	grpcAddr := os.Getenv("GRPC_SERVER_ADDR")
 	if grpcAddr == "" {
-		grpcAddr = "localhost:9001" // Default gRPC server address
+		grpcAddr = "localhost:9003" // Default gRPC server address
 	}
 
 	maxRetries := 5

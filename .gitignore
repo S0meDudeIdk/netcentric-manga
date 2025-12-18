@@ -28,7 +28,8 @@ go.work.sum
 .env
 
 # data repo
-mangahub/data/
+mangahub/data/*.db
+mangahub/data/*
 *.db
 
 
