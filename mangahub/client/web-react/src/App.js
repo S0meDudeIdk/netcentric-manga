@@ -12,7 +12,8 @@ import MangaDetail from './pages/MangaDetail';
 import ChapterReader from './pages/ChapterReader';
 import ChatHub from './pages/ChatHub';
 import GeneralChat from './pages/GeneralChat';
-import GRPCTestPage from './pages/GRPCTestPage';
+import Profile from './pages/Profile';
+import SyncManga from './pages/SyncManga';
 import authService from './services/authService';
 import websocketService from './services/websocketService';
 import './App.css';
@@ -110,11 +111,12 @@ const AppLayout = () => {
               <GeneralChat />
             </ProtectedRoute>
           } />
-          <Route path="/grpc-test" element={
+          <Route path="/profile" element={
             <ProtectedRoute>
-              <GRPCTestPage />
+              <Profile />
             </ProtectedRoute>
           } />
+          <Route path="/sync" element={<SyncManga />} />
         </Routes>
       </main>
       {!isAuthPage && !isReaderPage && <Footer />}

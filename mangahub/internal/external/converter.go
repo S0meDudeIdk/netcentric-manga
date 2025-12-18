@@ -48,9 +48,9 @@ func ConvertJikanToManga(jikan *JikanManga) *models.Manga {
 		publicationYear = jikan.Published.Prop.From.Year
 	}
 
-	// Create manga
+	// Create manga with just the numeric ID
 	manga := &models.Manga{
-		ID:              fmt.Sprintf("mal-%d", jikan.MalID),
+		ID:              fmt.Sprintf("%d", jikan.MalID),
 		Title:           jikan.Title,
 		Author:          author,
 		Genres:          genres,

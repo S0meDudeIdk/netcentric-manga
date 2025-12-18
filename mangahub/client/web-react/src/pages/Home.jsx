@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Book, TrendingUp, Library, ArrowRight } from 'lucide-react';
 import mangaService from '../services/mangaService';
-import userService from '../services/userService';
+import libraryService from '../services/libraryService';
 import MangaCard from '../components/MangaCard';
 import LoadingSpinner from '../components/LoadingSpinner';
 import authService from '../services/authService';
@@ -34,18 +34,18 @@ const Home = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        // Fetch trending (top rated manga)
-        const trendingData = await mangaService.getTopMAL(1, 6);
-        setTrendingManga(trendingData.data || []);
+        // Fetch alphabetical manga from database
+        const alphabeticalData = await mangaService.searchLocal('', 6, 0, 'title');
+        setTrendingManga(alphabeticalData.manga || []);
         
-        // Fetch recently added (sorted by start_date descending for newest manga)
-        const recentData = await mangaService.getTopMAL(1, 6, 'start_date', 'desc');
-        setRecentlyAdded(recentData.data || []);
+        // Fetch recently added (newest manga from database)
+        const recentData = await mangaService.searchLocal('', 6, 0, 'newest');
+        setRecentlyAdded(recentData.manga || []);
         
         // Fetch continue reading if authenticated
         if (isAuthenticated && authService.getToken()) {
           try {
-            const libraryData = await userService.getLibrary();
+            const libraryData = await libraryService.getLibrary();
             const readingManga = libraryData.library?.filter(item => item.status === 'reading').slice(0, 3) || [];
             setContinueReading(readingManga);
           } catch (err) {
@@ -145,15 +145,15 @@ const Home = () => {
         </section>
       )}
 
-      {/* Trending Now Section */}
+      {/* Alphabetical Section */}
       <section className="py-12 bg-background-light dark:bg-background-dark">
         <div className="container mx-auto px-4">
-          <div className="flex items-end justify-between mb-8">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-3xl font-black text-zinc-900 dark:text-white mb-2">Trending Now</h2>
+              <h2 className="text-3xl font-black text-zinc-900 dark:text-white mb-2">Alphabetical</h2>
             </div>
             <Link
-              to="/browse?sort=popular"
+              to="/browse?sort=title"
               className="text-primary font-semibold flex items-center gap-2 hover:text-primary/80 transition-colors group text-sm"
             >
               View All

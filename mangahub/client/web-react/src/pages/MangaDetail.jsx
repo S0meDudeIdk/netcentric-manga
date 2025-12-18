@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Book, ArrowLeft, Plus, Check, TrendingUp, AlertCircle, MessageCircle, Search, ArrowUpDown, ChevronLeft, ChevronRight, X, List, ArrowUpCircle, ArrowDownCircle, BookOpen, Star
 } from 'lucide-react';
 import mangaService from '../services/mangaService';
-import userService from '../services/userService';
+import libraryService from '../services/libraryService';
+import ratingService from '../services/ratingService';
 import authService from '../services/authService';
 import LoadingSpinner from '../components/LoadingSpinner';
 import AddToLibraryModal from '../components/AddToLibraryModal';
@@ -14,6 +15,8 @@ const MangaDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [manga, setManga] = useState(null);
+  const fetchingChaptersRef = useRef(false);
+  const fetchingRatingsRef = useRef(false);
   const [recommendations, setRecommendations] = useState([]);
   const [inLibrary, setInLibrary] = useState(false);
   const [libraryEntry, setLibraryEntry] = useState(null);
@@ -85,7 +88,7 @@ const MangaDetail = () => {
       // Check if in library (only for authenticated users)
       if (isAuthenticated && authService.getToken()) {
         try {
-          const libraryData = await userService.getLibrary();
+          const libraryData = await libraryService.getLibrary();
           // For MAL manga, we need to match by the full ID including "mal-" prefix
           const searchId = idStr.startsWith('mal-') ? idStr : parseInt(id);
           const entry = libraryData.library?.find(item =>
@@ -114,14 +117,12 @@ const MangaDetail = () => {
   // Fetch real chapters from API
   useEffect(() => {
     const fetchChapters = async () => {
-      if (!manga) return;
+      if (!manga || fetchingChaptersRef.current) return;
       
-      // Only fetch if manga ID suggests it's from an external source
+      fetchingChaptersRef.current = true;
+      // Fetch chapters for all manga (local database now has chapters)
+      // IDs can be: "md-{uuid}" for MangaDex, "mal-{id}" for MAL, etc.
       const idStr = id.toString();
-      if (!idStr.startsWith('mal-') && !idStr.includes('mangadex') && !idStr.includes('mangaplus')) {
-        setUseRealChapters(false);
-        return;
-      }
 
       try {
         setLoadingChapters(true);
@@ -137,6 +138,7 @@ const MangaDetail = () => {
         setUseRealChapters(false);
       } finally {
         setLoadingChapters(false);
+        fetchingChaptersRef.current = false;
       }
     };
 
@@ -146,14 +148,18 @@ const MangaDetail = () => {
   // Fetch rating stats
   useEffect(() => {
     const fetchRatings = async () => {
-      if (!manga) return;
+      if (!manga || fetchingRatingsRef.current) return;
 
+      fetchingRatingsRef.current = true;
       try {
-        const stats = await mangaService.getMangaRatings(id);
+        const stats = await ratingService.getMangaRatings(id);
+        console.log('📊 Rating stats received:', stats);
         setRatingStats(stats);
         setUserRating(stats.user_rating || null);
       } catch (err) {
         console.error('Error fetching ratings:', err);
+      } finally {
+        fetchingRatingsRef.current = false;
       }
     };
 
@@ -171,16 +177,20 @@ const MangaDetail = () => {
       
       // If clicking the same star, unrate (delete rating)
       if (userRating === rating) {
-        await mangaService.deleteRating(id);
+        await ratingService.deleteRating(id);
         // Fetch updated stats after deletion
-        const stats = await mangaService.getMangaRatings(id);
+        const stats = await ratingService.getMangaRatings(id);
         setRatingStats(stats);
-        setUserRating(null);
+        // user_rating will be 0 if not rated, convert to null for frontend
+        setUserRating(stats.user_rating > 0 ? stats.user_rating : null);
       } else {
         // Submit new rating
-        const stats = await mangaService.rateManga(id, rating);
+        const response = await ratingService.rateManga(id, rating);
+        // Immediately set the user rating to what was just submitted
+        setUserRating(rating);
+        // Then fetch updated stats to get the new average and distribution
+        const stats = await ratingService.getMangaRatings(id);
         setRatingStats(stats);
-        setUserRating(stats.user_rating || null);
       }
     } catch (err) {
       console.error('Error rating manga:', err);
@@ -199,7 +209,7 @@ const MangaDetail = () => {
 
     setUpdating(true);
     try {
-      await userService.addToLibrary(id, status); // Use id directly as string with selected status
+      await libraryService.addToLibrary(id, status); // Use id directly as string with selected status
       setInLibrary(true);
       setShowAddModal(false);
       await fetchMangaDetail(); // Refresh to get library entry
@@ -225,7 +235,7 @@ const MangaDetail = () => {
 
     setUpdating(true);
     try {
-      await userService.removeFromLibrary(id);
+      await libraryService.removeFromLibrary(id);
       setInLibrary(false);
       setLibraryEntry(null);
       setShowAddModal(false);
@@ -250,7 +260,7 @@ const MangaDetail = () => {
   const handleUpdateProgress = async (currentChapter) => {
     setUpdating(true);
     try {
-      await userService.updateProgress(parseInt(id), currentChapter, libraryEntry?.status || 'reading');
+      await libraryService.updateProgress(parseInt(id), currentChapter, libraryEntry?.status || 'reading');
       await fetchMangaDetail(); // Refresh library entry
     } catch (err) {
       console.error('Error updating progress:', err);
@@ -263,7 +273,7 @@ const MangaDetail = () => {
   const handleStatusChange = async (newStatus) => {
     setUpdating(true);
     try {
-      await userService.updateProgress(parseInt(id), libraryEntry?.current_chapter || 0, newStatus);
+      await libraryService.updateProgress(parseInt(id), libraryEntry?.current_chapter || 0, newStatus);
       await fetchMangaDetail(); // Refresh library entry
     } catch (err) {
       console.error('Error updating status:', err);
@@ -287,6 +297,7 @@ const MangaDetail = () => {
         read: false,
         source: ch.source || 'mangadex',
         pages: ch.pages || 0,
+        scanlation_group: ch.scanlation_group || 'Unknown',
         external_url: ch.external_url || null,
         is_external: ch.is_external || false
       }));
@@ -555,23 +566,23 @@ const MangaDetail = () => {
 
             {/* Rating Section */}
             <div className="bg-white dark:bg-[#191022] rounded-2xl p-8 border border-zinc-200 dark:border-zinc-800">
-              <h2 className="text-xl font-bold text-zinc-900 dark:text-white mb-4">Rating</h2>
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-white mb-6">Rating</h2>
               
               {ratingStats && (
-                <div className="mb-6">
-                  {/* Rating Summary and Distribution in one row */}
-                  <div className="flex items-start gap-6">
+                <div className="mb-8">
+                  {/* Rating Summary and Distribution */}
+                  <div className="flex flex-col md:flex-row items-start gap-8">
                     {/* Left side - Average Rating */}
-                    <div className="flex flex-col items-center justify-center min-w-[120px]">
-                      <div className="text-5xl font-black text-zinc-900 dark:text-white mb-2">
-                        {ratingStats.average_rating.toFixed(1)}
+                    <div className="flex flex-col items-center justify-center min-w-[140px]">
+                      <div className="text-6xl font-black text-zinc-900 dark:text-white mb-3">
+                        {ratingStats.average_rating ? ratingStats.average_rating.toFixed(1) : '0.0'}
                       </div>
                       <div className="flex gap-1 mb-2">
                         {[...Array(5)].map((_, i) => (
                           <Star
                             key={i}
                             className={`w-5 h-5 ${
-                              i < Math.round(ratingStats.average_rating)
+                              i < Math.round(ratingStats.average_rating || 0)
                                 ? 'fill-yellow-400 text-yellow-400'
                                 : 'text-zinc-300 dark:text-zinc-700'
                             }`}
@@ -584,33 +595,32 @@ const MangaDetail = () => {
                     </div>
 
                     {/* Right side - Rating Distribution */}
-                    {ratingStats.rating_distribution && (
-                      <div className="flex-1 space-y-2">
-                        {[5, 4, 3, 2, 1].map((star) => {
-                          const count = ratingStats.rating_distribution[star] || 0;
-                          const percentage = ratingStats.total_ratings > 0 
-                            ? (count / ratingStats.total_ratings) * 100 
-                            : 0;
-                          
-                          return (
-                            <div key={star} className="flex items-center gap-3">
-                              <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 w-2">
-                                {star}
-                              </span>
-                              <div className="flex-1 bg-zinc-200 dark:bg-zinc-800 rounded-full h-2.5 overflow-hidden">
-                                <div
-                                  className="bg-green-500 h-full rounded-full transition-all duration-300"
-                                  style={{ width: `${percentage}%` }}
-                                />
-                              </div>
-                              <span className="text-xs text-zinc-500 dark:text-zinc-500 w-8 text-right">
-                                {count > 0 ? count : ''}
-                              </span>
+                    <div className="flex-1 w-full md:w-auto space-y-2 min-w-[250px]">
+                      {[5, 4, 3, 2, 1].map((star) => {
+                        const dist = ratingStats.rating_distribution || {};
+                        const count = dist[star] || dist[star.toString()] || 0;
+                        const percentage = ratingStats.total_ratings > 0 
+                          ? (count / ratingStats.total_ratings) * 100 
+                          : 0;
+                        
+                        return (
+                          <div key={star} className="flex items-center gap-3">
+                            <span className="text-sm font-bold text-zinc-700 dark:text-zinc-300 w-4">
+                              {star}
+                            </span>
+                            <div className="flex-1 bg-zinc-200 dark:bg-zinc-800 rounded-full h-3.5 overflow-hidden">
+                              <div
+                                className="bg-green-500 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${percentage}%`, minWidth: percentage > 0 ? '2%' : '0%' }}
+                              />
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                            <span className="text-sm text-zinc-600 dark:text-zinc-400 w-12 text-right font-medium">
+                              {count.toLocaleString()}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               )}
@@ -620,13 +630,17 @@ const MangaDetail = () => {
                   <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3 text-center">
                     {userRating ? 'Your Rating' : 'Rate this manga'}
                   </h3>
+                  {userRating && (
+                    <p className="text-sm text-zinc-600 dark:text-zinc-400 text-center mb-3">
+                      You rated this manga {userRating}/5
+                    </p>
+                  )}
                   <div className="flex justify-center gap-2">
                     {[...Array(5)].map((_, i) => {
                       const rating = i + 1;
-                      // Fill stars from left to right up to the rating value
                       const isHovered = hoverRating > 0 && rating <= hoverRating;
                       const isSelected = userRating && rating <= userRating;
-                      const shouldHighlight = isHovered || (isSelected && !hoverRating);
+                      const shouldHighlight = isHovered || (isSelected && hoverRating === 0);
 
                       return (
                         <button
@@ -636,10 +650,10 @@ const MangaDetail = () => {
                           onMouseLeave={() => setHoverRating(0)}
                           disabled={submittingRating}
                           className="transition-all duration-200 hover:scale-110 disabled:opacity-50"
-                          title={`Rate ${rating}/5`}
+                          title={userRating === rating ? 'Click to remove rating' : `Rate ${rating}/5`}
                         >
                           <Star
-                            className={`w-9 h-9 ${
+                            className={`w-10 h-10 ${
                               shouldHighlight
                                 ? 'fill-yellow-400 text-yellow-400'
                                 : 'text-zinc-300 dark:text-zinc-700'
@@ -649,11 +663,6 @@ const MangaDetail = () => {
                       );
                     })}
                   </div>
-                  {userRating && (
-                    <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400 text-center">
-                      You rated this manga {userRating}/5
-                    </p>
-                  )}
                 </div>
               ) : (
                 <div className="text-center py-4">
@@ -812,18 +821,21 @@ const MangaDetail = () => {
                                 {useRealChapters && chapter.pages > 0 && (
                                   <span>• {chapter.pages} pages</span>
                                 )}
+                                {useRealChapters && chapter.scanlation_group && chapter.scanlation_group !== 'Unknown' && (
+                                  <span>• {chapter.scanlation_group}</span>
+                                )}
                               </div>
                             </div>
                           </div>
                           {useRealChapters && (
                             <div className="flex items-center gap-2">
                               {chapter.is_external ? (
-                                <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded font-medium">
-                                  External
+                                <span className="text-xs px-2 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded font-medium">
+                                  {chapter.source === 'mangaplus' ? 'MangaPlus' : chapter.source === 'mangadex' ? 'MangaDex' : 'External'}
                                 </span>
                               ) : (
-                                <span className="text-xs px-2 py-1 bg-zinc-200 dark:bg-zinc-700 rounded text-zinc-600 dark:text-zinc-400">
-                                  {chapter.source === 'mangadex' ? 'MangaDex' : 'MangaPlus'}
+                                <span className="text-xs px-2 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded font-medium">
+                                  {chapter.source === 'mangadex' ? 'MangaDex' : chapter.source === 'mangaplus' ? 'MangaPlus' : chapter.source}
                                 </span>
                               )}
                             </div>
@@ -871,53 +883,6 @@ const MangaDetail = () => {
                 <div className="text-center py-8">
                   <Book className="w-12 h-12 mx-auto mb-3 text-zinc-300 dark:text-zinc-700" />
                   <p className="text-zinc-500 dark:text-zinc-400">No chapter information available</p>
-                </div>
-              )}
-            </div>
-
-            {/* Recommended */}
-            <div className="bg-white dark:bg-[#191022] rounded-2xl p-8 border border-zinc-200 dark:border-zinc-800">
-              <h2 className="text-xl font-bold text-zinc-900 dark:text-white mb-6">Recommended</h2>
-              {recommendations && recommendations.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
-                  {recommendations.slice(0, 6).map((rec) => (
-                    <div 
-                      key={rec.id} 
-                      className="group cursor-pointer"
-                      onClick={() => navigate(`/manga/${rec.id}`)}
-                    >
-                      <div className="aspect-[2/3] bg-zinc-200 dark:bg-zinc-800 rounded-lg mb-2 overflow-hidden">
-                        {rec.cover_url ? (
-                          <img
-                            src={rec.cover_url}
-                            alt={rec.title}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                              e.target.parentElement.innerHTML = '<div class="w-full h-full flex items-center justify-center"><svg class="w-8 h-8 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg></div>';
-                            }}
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Book className="w-8 h-8 text-zinc-400" />
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-sm font-semibold text-zinc-900 dark:text-white truncate group-hover:text-primary transition">
-                        {rec.title}
-                      </p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                          ⭐ {rec.rating ? rec.rating.toFixed(1) : 'N/A'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Book className="w-12 h-12 mx-auto mb-3 text-zinc-300 dark:text-zinc-700" />
-                  <p className="text-zinc-500 dark:text-zinc-400">No recommendations available</p>
                 </div>
               )}
             </div>

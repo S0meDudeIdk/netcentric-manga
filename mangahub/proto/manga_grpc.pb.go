@@ -19,9 +19,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MangaService_GetManga_FullMethodName       = "/manga.MangaService/GetManga"
-	MangaService_SearchManga_FullMethodName    = "/manga.MangaService/SearchManga"
-	MangaService_UpdateProgress_FullMethodName = "/manga.MangaService/UpdateProgress"
+	MangaService_GetManga_FullMethodName          = "/manga.MangaService/GetManga"
+	MangaService_SearchManga_FullMethodName       = "/manga.MangaService/SearchManga"
+	MangaService_UpdateProgress_FullMethodName    = "/manga.MangaService/UpdateProgress"
+	MangaService_GetLibrary_FullMethodName        = "/manga.MangaService/GetLibrary"
+	MangaService_AddToLibrary_FullMethodName      = "/manga.MangaService/AddToLibrary"
+	MangaService_RemoveFromLibrary_FullMethodName = "/manga.MangaService/RemoveFromLibrary"
+	MangaService_GetLibraryStats_FullMethodName   = "/manga.MangaService/GetLibraryStats"
+	MangaService_RateManga_FullMethodName         = "/manga.MangaService/RateManga"
+	MangaService_GetMangaRatings_FullMethodName   = "/manga.MangaService/GetMangaRatings"
+	MangaService_DeleteRating_FullMethodName      = "/manga.MangaService/DeleteRating"
+	MangaService_GetUserProfile_FullMethodName    = "/manga.MangaService/GetUserProfile"
+	MangaService_UpdateUserProfile_FullMethodName = "/manga.MangaService/UpdateUserProfile"
+	MangaService_ChangePassword_FullMethodName    = "/manga.MangaService/ChangePassword"
 )
 
 // MangaServiceClient is the client API for MangaService service.
@@ -36,6 +46,19 @@ type MangaServiceClient interface {
 	SearchManga(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
 	// UpdateProgress updates user's reading progress
 	UpdateProgress(ctx context.Context, in *ProgressRequest, opts ...grpc.CallOption) (*ProgressResponse, error)
+	// Library Management
+	GetLibrary(ctx context.Context, in *LibraryRequest, opts ...grpc.CallOption) (*LibraryResponse, error)
+	AddToLibrary(ctx context.Context, in *AddToLibraryRequest, opts ...grpc.CallOption) (*AddToLibraryResponse, error)
+	RemoveFromLibrary(ctx context.Context, in *RemoveFromLibraryRequest, opts ...grpc.CallOption) (*RemoveFromLibraryResponse, error)
+	GetLibraryStats(ctx context.Context, in *LibraryStatsRequest, opts ...grpc.CallOption) (*LibraryStatsResponse, error)
+	// Rating System
+	RateManga(ctx context.Context, in *RatingRequest, opts ...grpc.CallOption) (*RatingResponse, error)
+	GetMangaRatings(ctx context.Context, in *MangaRatingRequest, opts ...grpc.CallOption) (*MangaRatingResponse, error)
+	DeleteRating(ctx context.Context, in *DeleteRatingRequest, opts ...grpc.CallOption) (*DeleteRatingResponse, error)
+	// User Profile Management
+	GetUserProfile(ctx context.Context, in *GetUserProfileRequest, opts ...grpc.CallOption) (*UserProfileResponse, error)
+	UpdateUserProfile(ctx context.Context, in *UpdateUserProfileRequest, opts ...grpc.CallOption) (*UpdateUserProfileResponse, error)
+	ChangePassword(ctx context.Context, in *ChangePasswordRequest, opts ...grpc.CallOption) (*ChangePasswordResponse, error)
 }
 
 type mangaServiceClient struct {
@@ -76,6 +99,106 @@ func (c *mangaServiceClient) UpdateProgress(ctx context.Context, in *ProgressReq
 	return out, nil
 }
 
+func (c *mangaServiceClient) GetLibrary(ctx context.Context, in *LibraryRequest, opts ...grpc.CallOption) (*LibraryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LibraryResponse)
+	err := c.cc.Invoke(ctx, MangaService_GetLibrary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mangaServiceClient) AddToLibrary(ctx context.Context, in *AddToLibraryRequest, opts ...grpc.CallOption) (*AddToLibraryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddToLibraryResponse)
+	err := c.cc.Invoke(ctx, MangaService_AddToLibrary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mangaServiceClient) RemoveFromLibrary(ctx context.Context, in *RemoveFromLibraryRequest, opts ...grpc.CallOption) (*RemoveFromLibraryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveFromLibraryResponse)
+	err := c.cc.Invoke(ctx, MangaService_RemoveFromLibrary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mangaServiceClient) GetLibraryStats(ctx context.Context, in *LibraryStatsRequest, opts ...grpc.CallOption) (*LibraryStatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LibraryStatsResponse)
+	err := c.cc.Invoke(ctx, MangaService_GetLibraryStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mangaServiceClient) RateManga(ctx context.Context, in *RatingRequest, opts ...grpc.CallOption) (*RatingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RatingResponse)
+	err := c.cc.Invoke(ctx, MangaService_RateManga_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mangaServiceClient) GetMangaRatings(ctx context.Context, in *MangaRatingRequest, opts ...grpc.CallOption) (*MangaRatingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MangaRatingResponse)
+	err := c.cc.Invoke(ctx, MangaService_GetMangaRatings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mangaServiceClient) DeleteRating(ctx context.Context, in *DeleteRatingRequest, opts ...grpc.CallOption) (*DeleteRatingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteRatingResponse)
+	err := c.cc.Invoke(ctx, MangaService_DeleteRating_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mangaServiceClient) GetUserProfile(ctx context.Context, in *GetUserProfileRequest, opts ...grpc.CallOption) (*UserProfileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserProfileResponse)
+	err := c.cc.Invoke(ctx, MangaService_GetUserProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mangaServiceClient) UpdateUserProfile(ctx context.Context, in *UpdateUserProfileRequest, opts ...grpc.CallOption) (*UpdateUserProfileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateUserProfileResponse)
+	err := c.cc.Invoke(ctx, MangaService_UpdateUserProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mangaServiceClient) ChangePassword(ctx context.Context, in *ChangePasswordRequest, opts ...grpc.CallOption) (*ChangePasswordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ChangePasswordResponse)
+	err := c.cc.Invoke(ctx, MangaService_ChangePassword_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MangaServiceServer is the server API for MangaService service.
 // All implementations must embed UnimplementedMangaServiceServer
 // for forward compatibility.
@@ -88,6 +211,19 @@ type MangaServiceServer interface {
 	SearchManga(context.Context, *SearchRequest) (*SearchResponse, error)
 	// UpdateProgress updates user's reading progress
 	UpdateProgress(context.Context, *ProgressRequest) (*ProgressResponse, error)
+	// Library Management
+	GetLibrary(context.Context, *LibraryRequest) (*LibraryResponse, error)
+	AddToLibrary(context.Context, *AddToLibraryRequest) (*AddToLibraryResponse, error)
+	RemoveFromLibrary(context.Context, *RemoveFromLibraryRequest) (*RemoveFromLibraryResponse, error)
+	GetLibraryStats(context.Context, *LibraryStatsRequest) (*LibraryStatsResponse, error)
+	// Rating System
+	RateManga(context.Context, *RatingRequest) (*RatingResponse, error)
+	GetMangaRatings(context.Context, *MangaRatingRequest) (*MangaRatingResponse, error)
+	DeleteRating(context.Context, *DeleteRatingRequest) (*DeleteRatingResponse, error)
+	// User Profile Management
+	GetUserProfile(context.Context, *GetUserProfileRequest) (*UserProfileResponse, error)
+	UpdateUserProfile(context.Context, *UpdateUserProfileRequest) (*UpdateUserProfileResponse, error)
+	ChangePassword(context.Context, *ChangePasswordRequest) (*ChangePasswordResponse, error)
 	mustEmbedUnimplementedMangaServiceServer()
 }
 
@@ -106,6 +242,36 @@ func (UnimplementedMangaServiceServer) SearchManga(context.Context, *SearchReque
 }
 func (UnimplementedMangaServiceServer) UpdateProgress(context.Context, *ProgressRequest) (*ProgressResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateProgress not implemented")
+}
+func (UnimplementedMangaServiceServer) GetLibrary(context.Context, *LibraryRequest) (*LibraryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLibrary not implemented")
+}
+func (UnimplementedMangaServiceServer) AddToLibrary(context.Context, *AddToLibraryRequest) (*AddToLibraryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddToLibrary not implemented")
+}
+func (UnimplementedMangaServiceServer) RemoveFromLibrary(context.Context, *RemoveFromLibraryRequest) (*RemoveFromLibraryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveFromLibrary not implemented")
+}
+func (UnimplementedMangaServiceServer) GetLibraryStats(context.Context, *LibraryStatsRequest) (*LibraryStatsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLibraryStats not implemented")
+}
+func (UnimplementedMangaServiceServer) RateManga(context.Context, *RatingRequest) (*RatingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RateManga not implemented")
+}
+func (UnimplementedMangaServiceServer) GetMangaRatings(context.Context, *MangaRatingRequest) (*MangaRatingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMangaRatings not implemented")
+}
+func (UnimplementedMangaServiceServer) DeleteRating(context.Context, *DeleteRatingRequest) (*DeleteRatingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteRating not implemented")
+}
+func (UnimplementedMangaServiceServer) GetUserProfile(context.Context, *GetUserProfileRequest) (*UserProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserProfile not implemented")
+}
+func (UnimplementedMangaServiceServer) UpdateUserProfile(context.Context, *UpdateUserProfileRequest) (*UpdateUserProfileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateUserProfile not implemented")
+}
+func (UnimplementedMangaServiceServer) ChangePassword(context.Context, *ChangePasswordRequest) (*ChangePasswordResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChangePassword not implemented")
 }
 func (UnimplementedMangaServiceServer) mustEmbedUnimplementedMangaServiceServer() {}
 func (UnimplementedMangaServiceServer) testEmbeddedByValue()                      {}
@@ -182,6 +348,186 @@ func _MangaService_UpdateProgress_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MangaService_GetLibrary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LibraryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).GetLibrary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_GetLibrary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).GetLibrary(ctx, req.(*LibraryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MangaService_AddToLibrary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddToLibraryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).AddToLibrary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_AddToLibrary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).AddToLibrary(ctx, req.(*AddToLibraryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MangaService_RemoveFromLibrary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveFromLibraryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).RemoveFromLibrary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_RemoveFromLibrary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).RemoveFromLibrary(ctx, req.(*RemoveFromLibraryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MangaService_GetLibraryStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LibraryStatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).GetLibraryStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_GetLibraryStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).GetLibraryStats(ctx, req.(*LibraryStatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MangaService_RateManga_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RatingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).RateManga(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_RateManga_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).RateManga(ctx, req.(*RatingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MangaService_GetMangaRatings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MangaRatingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).GetMangaRatings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_GetMangaRatings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).GetMangaRatings(ctx, req.(*MangaRatingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MangaService_DeleteRating_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRatingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).DeleteRating(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_DeleteRating_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).DeleteRating(ctx, req.(*DeleteRatingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MangaService_GetUserProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).GetUserProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_GetUserProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).GetUserProfile(ctx, req.(*GetUserProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MangaService_UpdateUserProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateUserProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).UpdateUserProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_UpdateUserProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).UpdateUserProfile(ctx, req.(*UpdateUserProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MangaService_ChangePassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChangePasswordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).ChangePassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_ChangePassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).ChangePassword(ctx, req.(*ChangePasswordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MangaService_ServiceDesc is the grpc.ServiceDesc for MangaService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -200,6 +546,46 @@ var MangaService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateProgress",
 			Handler:    _MangaService_UpdateProgress_Handler,
+		},
+		{
+			MethodName: "GetLibrary",
+			Handler:    _MangaService_GetLibrary_Handler,
+		},
+		{
+			MethodName: "AddToLibrary",
+			Handler:    _MangaService_AddToLibrary_Handler,
+		},
+		{
+			MethodName: "RemoveFromLibrary",
+			Handler:    _MangaService_RemoveFromLibrary_Handler,
+		},
+		{
+			MethodName: "GetLibraryStats",
+			Handler:    _MangaService_GetLibraryStats_Handler,
+		},
+		{
+			MethodName: "RateManga",
+			Handler:    _MangaService_RateManga_Handler,
+		},
+		{
+			MethodName: "GetMangaRatings",
+			Handler:    _MangaService_GetMangaRatings_Handler,
+		},
+		{
+			MethodName: "DeleteRating",
+			Handler:    _MangaService_DeleteRating_Handler,
+		},
+		{
+			MethodName: "GetUserProfile",
+			Handler:    _MangaService_GetUserProfile_Handler,
+		},
+		{
+			MethodName: "UpdateUserProfile",
+			Handler:    _MangaService_UpdateUserProfile_Handler,
+		},
+		{
+			MethodName: "ChangePassword",
+			Handler:    _MangaService_ChangePassword_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

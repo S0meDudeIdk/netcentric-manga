@@ -60,9 +60,10 @@ type MangaDexMangaResponse struct {
 
 // MangaDexManga represents a manga entry from MangaDex
 type MangaDexManga struct {
-	ID         string                  `json:"id"`
-	Type       string                  `json:"type"`
-	Attributes MangaDexMangaAttributes `json:"attributes"`
+	ID            string                  `json:"id"`
+	Type          string                  `json:"type"`
+	Attributes    MangaDexMangaAttributes `json:"attributes"`
+	Relationships []MangaDexRelationship  `json:"relationships"`
 }
 
 // MangaDexMangaAttributes contains manga details
@@ -91,6 +92,13 @@ type MangaDexTagAttributes struct {
 	Group string            `json:"group"`
 }
 
+// MangaDexRelationship represents related entities (author, artist, cover)
+type MangaDexRelationship struct {
+	ID         string                 `json:"id"`
+	Type       string                 `json:"type"`
+	Attributes map[string]interface{} `json:"attributes,omitempty"`
+}
+
 // MangaDexChapterFeedResponse represents chapter list response
 type MangaDexChapterFeedResponse struct {
 	Result   string            `json:"result"`
@@ -103,9 +111,10 @@ type MangaDexChapterFeedResponse struct {
 
 // MangaDexChapter represents a chapter entry
 type MangaDexChapter struct {
-	ID         string                    `json:"id"`
-	Type       string                    `json:"type"`
-	Attributes MangaDexChapterAttributes `json:"attributes"`
+	ID            string                    `json:"id"`
+	Type          string                    `json:"type"`
+	Attributes    MangaDexChapterAttributes `json:"attributes"`
+	Relationships []MangaDexRelationship    `json:"relationships"`
 }
 
 // MangaDexChapterAttributes contains chapter details
@@ -428,4 +437,51 @@ func ExtractMangaDexID(identifier string) (string, error) {
 	}
 
 	return "", fmt.Errorf("invalid MangaDex ID format")
+}
+
+// GetMangaList fetches a paginated list of manga from MangaDex
+func (c *MangaDexClient) GetMangaList(limit int, offset int) (*MangaDexMangaResponse, error) {
+	params := url.Values{}
+	params.Add("limit", fmt.Sprintf("%d", limit))
+	params.Add("offset", fmt.Sprintf("%d", offset))
+	params.Add("includes[]", "cover_art")
+	params.Add("includes[]", "author")
+	params.Add("includes[]", "artist")
+	params.Add("order[followedCount]", "desc")        // Popular manga first
+	params.Add("availableTranslatedLanguage[]", "en") // Only English translations
+	params.Add("hasAvailableChapters", "true")        // Only manga with chapters
+
+	url := fmt.Sprintf("%s/manga?%s", c.BaseURL, params.Encode())
+
+	if c.Debug {
+		fmt.Printf("[MangaDex] Fetching manga list: limit=%d, offset=%d\n", limit, offset)
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	c.addAuthHeaders(req)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result MangaDexMangaResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if c.Debug {
+		fmt.Printf("[MangaDex] Found %d manga (total: %d)\n", len(result.Data), result.Total)
+	}
+
+	return &result, nil
 }

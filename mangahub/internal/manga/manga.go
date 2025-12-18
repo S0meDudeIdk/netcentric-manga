@@ -28,11 +28,11 @@ func (s *Service) GetManga(id string) (*models.Manga, error) {
 	var manga models.Manga
 
 	err := s.db.QueryRow(`
-		SELECT id, title, author, genres, status, total_chapters, description, cover_url, created_at 
+		SELECT id, title, author, genres, status, total_chapters, description, cover_url, publication_year, created_at 
 		FROM manga WHERE id = ?`, id).Scan(
 		&manga.ID, &manga.Title, &manga.Author, &manga.GenresJSON,
 		&manga.Status, &manga.TotalChapters, &manga.Description,
-		&manga.CoverURL, &manga.CreatedAt)
+		&manga.CoverURL, &manga.PublicationYear, &manga.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -53,7 +53,7 @@ func (s *Service) GetManga(id string) (*models.Manga, error) {
 // SearchManga searches for manga based on various criteria
 func (s *Service) SearchManga(req models.MangaSearchRequest) ([]models.Manga, error) {
 	// Build query
-	query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url, created_at FROM manga WHERE 1=1`
+	query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url, publication_year, created_at FROM manga WHERE 1=1`
 	args := []interface{}{}
 
 	// Add search conditions
@@ -87,8 +87,32 @@ func (s *Service) SearchManga(req models.MangaSearchRequest) ([]models.Manga, er
 		}
 	}
 
-	// Add ordering
-	query += ` ORDER BY title`
+	// Add ordering based on Sort parameter
+	orderBy := "title" // Default sort
+	switch req.Sort {
+	case "title":
+		orderBy = "title ASC"
+	case "relevant":
+		// Relevance sorting: prioritize title matches over author/description
+		if req.Query != "" {
+			orderBy = "CASE WHEN title LIKE ? COLLATE NOCASE THEN 1 WHEN author LIKE ? COLLATE NOCASE THEN 2 ELSE 3 END, title ASC"
+			// Note: The LIKE parameters are already added to args earlier in the query
+		} else {
+			orderBy = "title ASC"
+		}
+	case "newest":
+		orderBy = "publication_year DESC, created_at DESC"
+	case "popular":
+		// Could be based on ratings, followers, etc. For now use total_chapters as proxy
+		orderBy = "total_chapters DESC"
+	default:
+		orderBy = "title ASC"
+	}
+	query += ` ORDER BY ` + orderBy
+
+	// Debug logging for sort issues
+	log.Printf("DEBUG SearchManga - Sort: %s, OrderBy: %s", req.Sort, orderBy)
+	log.Printf("DEBUG SearchManga - Final Query: %s", query)
 
 	// Add pagination
 	if req.Limit <= 0 || req.Limit > 100 {
@@ -113,7 +137,7 @@ func (s *Service) SearchManga(req models.MangaSearchRequest) ([]models.Manga, er
 		var manga models.Manga
 		err := rows.Scan(&manga.ID, &manga.Title, &manga.Author, &manga.GenresJSON,
 			&manga.Status, &manga.TotalChapters, &manga.Description,
-			&manga.CoverURL, &manga.CreatedAt)
+			&manga.CoverURL, &manga.PublicationYear, &manga.CreatedAt)
 		if err != nil {
 			log.Printf("Error scanning manga row: %v", err)
 			continue
@@ -128,7 +152,55 @@ func (s *Service) SearchManga(req models.MangaSearchRequest) ([]models.Manga, er
 		mangaList = append(mangaList, manga)
 	}
 
+	// Debug: Log first 5 results to verify sort order
+	if len(mangaList) > 0 {
+		log.Printf("DEBUG SearchManga - First 5 results:")
+		for i := 0; i < len(mangaList) && i < 5; i++ {
+			log.Printf("  %d. %s (Year: %d)", i+1, mangaList[i].Title, mangaList[i].PublicationYear)
+		}
+	}
+
 	return mangaList, nil
+}
+
+// GetMangaCount returns the total count of manga matching the search criteria
+func (s *Service) GetMangaCount(req models.MangaSearchRequest) (int, error) {
+	// Build count query (same conditions as SearchManga but without pagination)
+	query := `SELECT COUNT(*) FROM manga WHERE 1=1`
+	args := []interface{}{}
+
+	// Add same search conditions as SearchManga
+	if req.Query != "" {
+		query += ` AND (title LIKE ? COLLATE NOCASE OR author LIKE ? COLLATE NOCASE OR description LIKE ? COLLATE NOCASE)`
+		searchTerm := "%" + req.Query + "%"
+		args = append(args, searchTerm, searchTerm, searchTerm)
+	}
+
+	if req.Author != "" {
+		query += ` AND author LIKE ?`
+		args = append(args, "%"+req.Author+"%")
+	}
+
+	if req.Status != "" {
+		query += ` AND status = ?`
+		args = append(args, req.Status)
+	}
+
+	// Add genre filter if specified
+	if len(req.Genres) > 0 {
+		for _, genre := range req.Genres {
+			query += ` AND genres LIKE ?`
+			args = append(args, "%\""+genre+"\"%")
+		}
+	}
+
+	var count int
+	err := s.db.QueryRow(query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count manga: %w", err)
+	}
+
+	return count, nil
 }
 
 // GetAllManga retrieves all manga with pagination
@@ -141,7 +213,7 @@ func (s *Service) GetAllManga(limit, offset int) ([]models.Manga, error) {
 	}
 
 	rows, err := s.db.Query(`
-		SELECT id, title, author, genres, status, total_chapters, description, cover_url, created_at 
+		SELECT id, title, author, genres, status, total_chapters, description, cover_url, publication_year, created_at 
 		FROM manga 
 		ORDER BY title 
 		LIMIT ? OFFSET ?`, limit, offset)
@@ -156,7 +228,7 @@ func (s *Service) GetAllManga(limit, offset int) ([]models.Manga, error) {
 		var manga models.Manga
 		err := rows.Scan(&manga.ID, &manga.Title, &manga.Author, &manga.GenresJSON,
 			&manga.Status, &manga.TotalChapters, &manga.Description,
-			&manga.CoverURL, &manga.CreatedAt)
+			&manga.CoverURL, &manga.PublicationYear, &manga.CreatedAt)
 		if err != nil {
 			log.Printf("Error scanning manga row: %v", err)
 			continue
@@ -183,7 +255,7 @@ func (s *Service) GetPopularManga(limit int) ([]models.Manga, error) {
 	// For now, just return the first N manga ordered by title
 	// In a real application, you'd have a popularity metric
 	rows, err := s.db.Query(`
-		SELECT id, title, author, genres, status, total_chapters, description, cover_url, created_at 
+		SELECT id, title, author, genres, status, total_chapters, description, cover_url, publication_year, created_at 
 		FROM manga 
 		ORDER BY title 
 		LIMIT ?`, limit)
@@ -198,7 +270,7 @@ func (s *Service) GetPopularManga(limit int) ([]models.Manga, error) {
 		var manga models.Manga
 		err := rows.Scan(&manga.ID, &manga.Title, &manga.Author, &manga.GenresJSON,
 			&manga.Status, &manga.TotalChapters, &manga.Description,
-			&manga.CoverURL, &manga.CreatedAt)
+			&manga.CoverURL, &manga.PublicationYear, &manga.CreatedAt)
 		if err != nil {
 			log.Printf("Error scanning manga row: %v", err)
 			continue
@@ -226,7 +298,7 @@ func (s *Service) GetMangaByGenre(genre string, limit, offset int) ([]models.Man
 	}
 
 	rows, err := s.db.Query(`
-		SELECT id, title, author, genres, status, total_chapters, description, cover_url, created_at 
+		SELECT id, title, author, genres, status, total_chapters, description, cover_url, publication_year, created_at 
 		FROM manga 
 		WHERE genres LIKE ?
 		ORDER BY title 
@@ -242,7 +314,7 @@ func (s *Service) GetMangaByGenre(genre string, limit, offset int) ([]models.Man
 		var manga models.Manga
 		err := rows.Scan(&manga.ID, &manga.Title, &manga.Author, &manga.GenresJSON,
 			&manga.Status, &manga.TotalChapters, &manga.Description,
-			&manga.CoverURL, &manga.CreatedAt)
+			&manga.CoverURL, &manga.PublicationYear, &manga.CreatedAt)
 		if err != nil {
 			log.Printf("Error scanning manga row: %v", err)
 			continue
@@ -309,11 +381,11 @@ func (s *Service) CreateManga(manga models.Manga) (*models.Manga, error) {
 	// Insert into database
 	_, err := s.db.Exec(`
 		INSERT INTO manga 
-		(id, title, author, genres, status, total_chapters, description, cover_url, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, title, author, genres, status, total_chapters, description, cover_url, publication_year, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		manga.ID, manga.Title, manga.Author, manga.GenresJSON,
 		manga.Status, manga.TotalChapters, manga.Description,
-		manga.CoverURL, manga.CreatedAt)
+		manga.CoverURL, manga.PublicationYear, manga.CreatedAt)
 
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -346,10 +418,10 @@ func (s *Service) UpdateManga(id string, manga models.Manga) (*models.Manga, err
 	_, err = s.db.Exec(`
 		UPDATE manga SET 
 		title = ?, author = ?, genres = ?, status = ?, 
-		total_chapters = ?, description = ?, cover_url = ?
+		total_chapters = ?, description = ?, cover_url = ?, publication_year = ?
 		WHERE id = ?`,
 		manga.Title, manga.Author, manga.GenresJSON, manga.Status,
-		manga.TotalChapters, manga.Description, manga.CoverURL, id)
+		manga.TotalChapters, manga.Description, manga.CoverURL, manga.PublicationYear, id)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to update manga: %w", err)
@@ -405,6 +477,14 @@ func (s *Service) GetMangaStats() (map[string]interface{}, error) {
 	}
 	stats["total_manga"] = totalManga
 
+	// Total chapters count
+	var totalChapters int
+	err = s.db.QueryRow("SELECT COUNT(*) FROM manga_chapters").Scan(&totalChapters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total chapters count: %w", err)
+	}
+	stats["total_chapters"] = totalChapters
+
 	// Count by status
 	statusRows, err := s.db.Query("SELECT status, COUNT(*) FROM manga GROUP BY status")
 	if err != nil {
@@ -424,13 +504,58 @@ func (s *Service) GetMangaStats() (map[string]interface{}, error) {
 	}
 	stats["by_status"] = statusCounts
 
-	// Average chapters
-	var avgChapters float64
-	err = s.db.QueryRow("SELECT AVG(total_chapters) FROM manga WHERE total_chapters > 0").Scan(&avgChapters)
+	// Count by source
+	sourceRows, err := s.db.Query("SELECT source, COUNT(DISTINCT manga_id) FROM manga_sources GROUP BY source")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get source counts: %w", err)
+	}
+	defer sourceRows.Close()
+
+	sourceCounts := make(map[string]int)
+	for sourceRows.Next() {
+		var source string
+		var count int
+		if err := sourceRows.Scan(&source, &count); err != nil {
+			log.Printf("Error scanning source row: %v", err)
+			continue
+		}
+		sourceCounts[source] = count
+	}
+	stats["by_source"] = sourceCounts
+
+	// Chapter sources
+	chapterSourceRows, err := s.db.Query("SELECT source, COUNT(*) FROM manga_chapters GROUP BY source")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get chapter source counts: %w", err)
+	}
+	defer chapterSourceRows.Close()
+
+	chapterSourceCounts := make(map[string]int)
+	for chapterSourceRows.Next() {
+		var source string
+		var count int
+		if err := chapterSourceRows.Scan(&source, &count); err != nil {
+			log.Printf("Error scanning chapter source row: %v", err)
+			continue
+		}
+		chapterSourceCounts[source] = count
+	}
+	stats["chapters_by_source"] = chapterSourceCounts
+
+	// Average chapters per manga
+	var avgChapters sql.NullFloat64
+	err = s.db.QueryRow(`
+		SELECT AVG(chapter_count) 
+		FROM (SELECT COUNT(*) as chapter_count FROM manga_chapters GROUP BY manga_id)
+	`).Scan(&avgChapters)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to get average chapters: %w", err)
 	}
-	stats["average_chapters"] = avgChapters
+	if avgChapters.Valid {
+		stats["average_chapters_per_manga"] = avgChapters.Float64
+	} else {
+		stats["average_chapters_per_manga"] = 0.0
+	}
 
 	return stats, nil
 }

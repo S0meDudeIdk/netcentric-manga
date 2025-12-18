@@ -97,6 +97,7 @@ type MangaSearchRequest struct {
 	Genres []string `json:"genres" form:"genres"`
 	Status string   `json:"status" form:"status"`
 	Author string   `json:"author" form:"author"`
+	Sort   string   `json:"sort" form:"sort"`
 	Limit  int      `json:"limit" form:"limit"`
 	Offset int      `json:"offset" form:"offset"`
 }
@@ -158,17 +159,18 @@ type LibraryStatsResponse struct {
 
 // ChapterInfo represents chapter metadata
 type ChapterInfo struct {
-	ID            string  `json:"id"`
-	MangaID       string  `json:"manga_id"`
-	ChapterNumber string  `json:"chapter_number"`
-	VolumeNumber  string  `json:"volume_number,omitempty"`
-	Title         string  `json:"title,omitempty"`
-	Language      string  `json:"language"`
-	Pages         int     `json:"pages"`
-	PublishedAt   string  `json:"published_at,omitempty"`
-	Source        string  `json:"source"`       // "mangadex" or "mangaplus"
-	ExternalUrl   *string `json:"external_url"` // URL to external site for licensed manga
-	IsExternal    bool    `json:"is_external"`  // true if chapter is only available externally
+	ID              string  `json:"id"`
+	MangaID         string  `json:"manga_id"`
+	ChapterNumber   string  `json:"chapter_number"`
+	VolumeNumber    string  `json:"volume_number,omitempty"`
+	Title           string  `json:"title,omitempty"`
+	Language        string  `json:"language"`
+	Pages           int     `json:"pages"`
+	PublishedAt     string  `json:"published_at,omitempty"`
+	Source          string  `json:"source"`           // "mangadex" or "mangaplus"
+	ScanlationGroup string  `json:"scanlation_group"` // Scanlation group name
+	ExternalUrl     *string `json:"external_url"`     // URL to external site for licensed manga
+	IsExternal      bool    `json:"is_external"`      // true if chapter is only available externally
 }
 
 // ChapterPages represents the pages/images of a chapter

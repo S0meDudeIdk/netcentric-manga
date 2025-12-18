@@ -115,6 +115,36 @@ const userService = {
       console.error('Error removing from library:', error);
       throw error.response?.data || error;
     }
+  },
+
+  updateProfile: async (username, email) => {
+    try {
+      const response = await axios.put(`${BASE_URL}/profile`, {
+        username,
+        email
+      }, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  changePassword: async (oldPassword, newPassword) => {
+    try {
+      const response = await axios.put(`${BASE_URL}/password`, {
+        old_password: oldPassword,
+        new_password: newPassword
+      }, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error changing password:', error);
+      throw error.response?.data || error;
+    }
   }
 };
 

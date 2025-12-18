@@ -5,7 +5,7 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight, Settings, X, AlertCircle
 } from 'lucide-react';
 import mangaService from '../services/mangaService';
-import userService from '../services/userService';
+import libraryService from '../services/libraryService';
 import authService from '../services/authService';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -53,7 +53,7 @@ const ChapterReader = () => {
       // Update reading progress if authenticated
       if (isAuthenticated && chapterNumber) {
         try {
-          await userService.updateProgress(mangaId, parseInt(chapterNumber), 'reading');
+          await libraryService.updateProgress(mangaId, parseInt(chapterNumber), 'reading');
         } catch (err) {
           console.error('Failed to update progress:', err);
         }

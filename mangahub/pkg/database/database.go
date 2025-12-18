@@ -94,6 +94,7 @@ func createTables() error {
 			total_chapters INTEGER,
 			description TEXT,
 			cover_url TEXT,
+			publication_year INTEGER,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 
@@ -122,6 +123,34 @@ func createTables() error {
 			FOREIGN KEY (manga_id) REFERENCES manga(id) ON DELETE CASCADE
 		)`,
 
+		// Manga chapters table - stores chapter metadata from MangaDex/MangaPlus
+		`CREATE TABLE IF NOT EXISTS manga_chapters (
+			id TEXT PRIMARY KEY,
+			manga_id TEXT NOT NULL,
+			chapter_number TEXT NOT NULL,
+			title TEXT,
+			volume TEXT,
+			language TEXT DEFAULT 'en',
+			pages INTEGER DEFAULT 0,
+			source TEXT NOT NULL, -- 'mangadex' or 'mangaplus'
+			source_chapter_id TEXT NOT NULL, -- ID in the external source
+			scanlation_group TEXT, -- Name of scanlation group (for multiple versions)
+			external_url TEXT, -- URL to external site (e.g., MangaPlus) for licensed manga
+			is_external INTEGER DEFAULT 0, -- 1 if chapter is only available externally
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (manga_id) REFERENCES manga(id) ON DELETE CASCADE
+		)`,
+
+		// Manga source mapping table - links manga to external sources
+		`CREATE TABLE IF NOT EXISTS manga_sources (
+			manga_id TEXT NOT NULL,
+			source TEXT NOT NULL, -- 'mangadex', 'mangaplus', 'mal'
+			source_id TEXT NOT NULL, -- ID in the external source
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (manga_id, source),
+			FOREIGN KEY (manga_id) REFERENCES manga(id) ON DELETE CASCADE
+		)`,
+
 		// Create indexes for better performance
 		`CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`,
@@ -131,6 +160,10 @@ func createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_progress_manga ON user_progress(manga_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_ratings_manga ON manga_ratings(manga_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_ratings_user ON manga_ratings(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_chapters_manga ON manga_chapters(manga_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_chapters_number ON manga_chapters(chapter_number)`,
+		`CREATE INDEX IF NOT EXISTS idx_sources_manga ON manga_sources(manga_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sources_source ON manga_sources(source)`,
 	}
 
 	for _, query := range queries {

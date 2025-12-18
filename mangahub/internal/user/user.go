@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Service handles user-related operations
@@ -85,22 +87,22 @@ func (s *Service) Register(req models.UserRegistration) (*models.AuthResponse, e
 func (s *Service) Login(req models.UserLogin) (*models.LoginResponse, error) {
 	var user models.User
 
-	// Get user from database
+	// Get user from database by email or username
 	err := s.db.QueryRow(`
 		SELECT id, username, email, password_hash, created_at 
-		FROM users WHERE email = ?`, req.Email).Scan(
+		FROM users WHERE email = ? OR username = ?`, req.Email, req.Email).Scan(
 		&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("invalid email or password")
+			return nil, fmt.Errorf("invalid email/username or password")
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
 	// Verify password
 	if err := auth.VerifyPassword(user.PasswordHash, req.Password); err != nil {
-		return nil, fmt.Errorf("invalid email or password")
+		return nil, fmt.Errorf("invalid email/username or password")
 	}
 
 	// Generate JWT token
@@ -589,4 +591,90 @@ func (s *Service) GetUserProgress(userID, mangaID string) (*models.UserProgress,
 	}
 
 	return &progress, nil
+}
+
+// UpdateProfile updates a user's profile information
+func (s *Service) UpdateProfile(userID string, username, email string) (*models.UserResponse, error) {
+	// Check if user exists
+	var existingID string
+	err := s.db.QueryRow("SELECT id FROM users WHERE id = ?", userID).Scan(&existingID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("user not found")
+		}
+		return nil, fmt.Errorf("failed to check user existence: %w", err)
+	}
+
+	// Check if username is already taken by another user
+	if username != "" {
+		var existingUserID string
+		err = s.db.QueryRow("SELECT id FROM users WHERE username = ? AND id != ?", username, userID).Scan(&existingUserID)
+		if err == nil {
+			return nil, fmt.Errorf("username already taken")
+		} else if err != sql.ErrNoRows {
+			return nil, fmt.Errorf("failed to check username availability: %w", err)
+		}
+	}
+
+	// Build update query dynamically based on provided fields
+	updates := []string{}
+	args := []interface{}{}
+
+	if username != "" {
+		updates = append(updates, "username = ?")
+		args = append(args, username)
+	}
+
+	if email != "" {
+		updates = append(updates, "email = ?")
+		args = append(args, email)
+	}
+
+	if len(updates) == 0 {
+		return nil, fmt.Errorf("no fields to update")
+	}
+
+	// Add userID as last argument
+	args = append(args, userID)
+
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = ?", strings.Join(updates, ", "))
+	_, err = s.db.Exec(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update profile: %w", err)
+	}
+
+	// Get updated profile
+	return s.GetProfile(userID)
+}
+
+// ChangePassword changes a user's password
+func (s *Service) ChangePassword(userID, oldPassword, newPassword string) error {
+	// Get current user
+	var hashedPassword string
+	err := s.db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&hashedPassword)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("user not found")
+		}
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Verify old password
+	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(oldPassword)); err != nil {
+		return fmt.Errorf("incorrect old password")
+	}
+
+	// Hash new password
+	newHashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash new password: %w", err)
+	}
+
+	// Update password
+	_, err = s.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", string(newHashedPassword), userID)
+	if err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	return nil
 }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Search as SearchIcon, Book, X } from 'lucide-react';
-import mangaService from '../services/mangaService';
+import { Search as SearchIcon, Book, X, Database, Globe } from 'lucide-react';
+import searchService from '../services/searchService';
 import MangaCard from '../components/MangaCard';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -11,6 +11,7 @@ const Search = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [source, setSource] = useState('local'); // 'local' or 'mal'
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -24,8 +25,13 @@ const Search = () => {
     setHasSearched(true);
 
     try {
-      const data = await mangaService.searchMAL(query);
-      setResults(data.data || []);
+      if (source === 'local') {
+        const data = await searchService.searchLocalManga(query, 50);
+        setResults(data.manga || []);
+      } else {
+        const data = await searchService.searchMAL(query);
+        setResults(data.data || []);
+      }
     } catch (err) {
       console.error('Search error:', err);
       setError(err.message);
@@ -42,6 +48,15 @@ const Search = () => {
     setError(null);
   };
 
+  const handleSourceChange = (newSource) => {
+    setSource(newSource);
+    // Clear results when switching source
+    if (hasSearched) {
+      setResults([]);
+      setHasSearched(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="container mx-auto px-4">
@@ -56,8 +71,44 @@ const Search = () => {
             <h1 className="text-4xl font-bold text-gray-900">Search Manga</h1>
           </div>
           <p className="text-gray-600">
-            Search by title, author, or genre from MyAnimeList
+            Search from local database or MyAnimeList
           </p>
+        </motion.div>
+
+        {/* Source Selector */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="bg-white rounded-lg shadow-md p-4 mb-4"
+        >
+          <div className="flex items-center justify-center gap-4">
+            <span className="text-sm font-semibold text-gray-700">Search in:</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleSourceChange('local')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition ${
+                  source === 'local'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <Database className="w-4 h-4" />
+                Local Database
+              </button>
+              <button
+                onClick={() => handleSourceChange('mal')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition ${
+                  source === 'mal'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <Globe className="w-4 h-4" />
+                MyAnimeList
+              </button>
+            </div>
+          </div>
         </motion.div>
 
         {/* Search Bar */}

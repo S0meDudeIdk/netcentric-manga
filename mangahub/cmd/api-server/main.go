@@ -15,6 +15,8 @@ import (
 	"mangahub/pkg/database"
 	"mangahub/pkg/middleware"
 	"mangahub/pkg/models"
+	pb "mangahub/proto"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -32,6 +34,7 @@ type APIServer struct {
 	MangaService   *manga.Service
 	ChapterService *manga.ChapterService
 	RatingService  *manga.RatingService
+	SyncService    *manga.SyncService
 	MALClient      *external.MALClient
 	JikanClient    *external.JikanClient
 	Port           string
@@ -90,11 +93,10 @@ func NewAPIServer() *APIServer {
 	router.Use(middleware.RequestValidator())
 	router.Use(middleware.ResponseValidator())
 
-	// Add request logging middleware
-	router.Use(gin.Logger())
-
 	// Add recovery middleware
 	router.Use(gin.Recovery())
+
+	jikanClient := external.NewJikanClient()
 
 	server := &APIServer{
 		Router:         router,
@@ -102,8 +104,9 @@ func NewAPIServer() *APIServer {
 		MangaService:   manga.NewService(),
 		ChapterService: manga.NewChapterService(),
 		RatingService:  manga.NewRatingService(),
+		SyncService:    manga.NewSyncService(jikanClient),
 		MALClient:      external.NewMALClient(),
-		JikanClient:    external.NewJikanClient(),
+		JikanClient:    jikanClient,
 		Port:           getPort(),
 		ChatHub:        internalWebsocket.NewChatHub(),
 		upgrader: internalWebsocket.Upgrader{
@@ -133,6 +136,9 @@ func NewAPIServer() *APIServer {
 
 	// Connect to gRPC server
 	go server.connectToGRPCServer()
+
+	// Auto-sync manga from MAL on startup (in background)
+	go server.autoSyncManga()
 
 	// Setup routes
 	server.setupRoutes()
@@ -330,6 +336,11 @@ func (s *APIServer) setupRoutes() {
 			publicManga.GET("/popular", s.getPopularManga)
 			publicManga.GET("/stats", s.getMangaStats)
 
+			// Sync endpoint - fetch from MAL and store manga with chapters
+			publicManga.POST("/sync", s.syncMangaFromMAL)
+			// Force sync chapters for manga without chapters
+			publicManga.POST("/sync-chapters", s.syncMangaChapters)
+
 			// MAL/Jikan API integration routes
 			publicManga.GET("/mal/search", s.searchMAL)
 			publicManga.GET("/mal/top", s.getTopMAL)
@@ -358,6 +369,8 @@ func (s *APIServer) setupRoutes() {
 			users := protected.Group("/users")
 			{
 				users.GET("/profile", s.getProfile)
+				users.PUT("/profile", s.updateProfile)
+				users.PUT("/password", s.changePassword)
 				users.GET("/library", s.getLibrary)
 				users.GET("/library/filtered", s.getFilteredLibrary)
 				users.GET("/library/stats", s.getLibraryStats)
@@ -398,6 +411,17 @@ func (s *APIServer) setupRoutes() {
 				grpcRoutes.GET("/manga/:id", s.getMangaViaGRPC)
 				grpcRoutes.GET("/manga/search", s.searchMangaViaGRPC)
 				grpcRoutes.PUT("/progress/update", s.updateProgressViaGRPC)
+
+				// Library management via gRPC
+				grpcRoutes.GET("/library", s.getLibraryViaGRPC)
+				grpcRoutes.POST("/library", s.addToLibraryViaGRPC)
+				grpcRoutes.DELETE("/library/:manga_id", s.removeFromLibraryViaGRPC)
+				grpcRoutes.GET("/library/stats", s.getLibraryStatsViaGRPC)
+
+				// Rating system via gRPC
+				grpcRoutes.POST("/rating", s.rateMangaViaGRPC)
+				grpcRoutes.GET("/rating/:manga_id", s.getMangaRatingsViaGRPC)
+				grpcRoutes.DELETE("/rating/:manga_id", s.deleteRatingViaGRPC)
 			}
 		}
 		// WebSocket stats endpoint (public for monitoring)
@@ -470,6 +494,75 @@ func (s *APIServer) getProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, profile)
+}
+
+// Update profile endpoint
+func (s *APIServer) updateProfile(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate at least one field is provided
+	if req.Username == "" && req.Email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "At least one field (username or email) must be provided"})
+		return
+	}
+
+	profile, err := s.UserService.UpdateProfile(userID, req.Username, req.Email)
+	if err != nil {
+		if strings.Contains(err.Error(), "already taken") {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		} else if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			log.Printf("Update profile error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Profile updated successfully",
+		"profile": profile,
+	})
+}
+
+// Change password endpoint
+func (s *APIServer) changePassword(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req struct {
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required,min=6"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err := s.UserService.ChangePassword(userID, req.OldPassword, req.NewPassword)
+	if err != nil {
+		if strings.Contains(err.Error(), "incorrect") {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		} else if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			log.Printf("Change password error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Password changed successfully"})
 }
 
 // Get library endpoint
@@ -668,6 +761,7 @@ func (s *APIServer) searchManga(c *gin.Context) {
 		Query:  c.Query("query"),
 		Author: c.Query("author"),
 		Status: c.Query("status"),
+		Sort:   c.Query("sort"),
 		Limit:  20,
 		Offset: 0,
 	}
@@ -700,9 +794,18 @@ func (s *APIServer) searchManga(c *gin.Context) {
 		return
 	}
 
+	// Get total count for pagination
+	totalCount, err := s.MangaService.GetMangaCount(req)
+	if err != nil {
+		log.Printf("Get manga count error: %v", err)
+		totalCount = len(mangaList) // Fallback to current count
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"manga": mangaList,
-		"count": len(mangaList),
+		"manga":  mangaList,
+		"count":  totalCount,
+		"limit":  req.Limit,
+		"offset": req.Offset,
 	})
 }
 
@@ -1952,11 +2055,25 @@ func (s *APIServer) searchMangaViaGRPC(c *gin.Context) {
 		}
 	}
 
-	// Call gRPC SearchManga method
+	// Parse offset parameter
+	offset := int32(0)
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = int32(o)
+		}
+	}
+
+	// Get sort parameter
+	sort := c.Query("sort")
+	if sort == "" {
+		sort = "title" // Default sort
+	}
+
+	// Call gRPC SearchManga method with all parameters
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	resp, err := s.GRPCClient.SearchManga(ctx, query, limit)
+	resp, err := s.GRPCClient.SearchManga(ctx, query, limit, offset, sort)
 	if err != nil {
 		log.Printf("gRPC SearchManga error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -2046,4 +2163,384 @@ func (s *APIServer) updateProgressViaGRPC(c *gin.Context) {
 		"source":  "grpc",
 		"success": true,
 	})
+}
+
+// getLibraryViaGRPC retrieves user's library via gRPC service
+func (s *APIServer) getLibraryViaGRPC(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "gRPC service unavailable"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.GetLibrary(ctx, userID)
+	if err != nil {
+		log.Printf("gRPC GetLibrary error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get library via gRPC"})
+		return
+	}
+
+	if resp.Error != "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": resp.Error})
+		return
+	}
+
+	// Convert protobuf to JSON
+	convertProgress := func(pbProgress []*pb.UserProgress) []gin.H {
+		result := make([]gin.H, len(pbProgress))
+		for i, p := range pbProgress {
+			result[i] = gin.H{
+				"manga_id":        p.MangaId,
+				"current_chapter": p.CurrentChapter,
+				"status":          p.Status,
+				"last_updated":    p.LastUpdated,
+				"title":           p.Title,
+				"author":          p.Author,
+				"cover_url":       p.CoverUrl,
+			}
+		}
+		return result
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"reading":      convertProgress(resp.Reading),
+		"completed":    convertProgress(resp.Completed),
+		"plan_to_read": convertProgress(resp.PlanToRead),
+		"dropped":      convertProgress(resp.Dropped),
+		"on_hold":      convertProgress(resp.OnHold),
+		"re_reading":   convertProgress(resp.ReReading),
+		"source":       "grpc",
+	})
+}
+
+// addToLibraryViaGRPC adds manga to user's library via gRPC service
+func (s *APIServer) addToLibraryViaGRPC(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req struct {
+		MangaID string `json:"manga_id" binding:"required"`
+		Status  string `json:"status" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "gRPC service unavailable"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.AddToLibrary(ctx, userID, req.MangaID, req.Status)
+	if err != nil {
+		log.Printf("gRPC AddToLibrary error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add to library via gRPC"})
+		return
+	}
+
+	if !resp.Success {
+		c.JSON(http.StatusBadRequest, gin.H{"error": resp.Error})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": resp.Message,
+		"source":  "grpc",
+		"success": true,
+	})
+}
+
+// removeFromLibraryViaGRPC removes manga from user's library via gRPC service
+func (s *APIServer) removeFromLibraryViaGRPC(c *gin.Context) {
+	userID := c.GetString("user_id")
+	mangaID := c.Param("manga_id")
+
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "gRPC service unavailable"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.RemoveFromLibrary(ctx, userID, mangaID)
+	if err != nil {
+		log.Printf("gRPC RemoveFromLibrary error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove from library via gRPC"})
+		return
+	}
+
+	if !resp.Success {
+		c.JSON(http.StatusBadRequest, gin.H{"error": resp.Error})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": resp.Message,
+		"source":  "grpc",
+		"success": true,
+	})
+}
+
+// getLibraryStatsViaGRPC retrieves user's library statistics via gRPC service
+func (s *APIServer) getLibraryStatsViaGRPC(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "gRPC service unavailable"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.GetLibraryStats(ctx, userID)
+	if err != nil {
+		log.Printf("gRPC GetLibraryStats error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get library stats via gRPC"})
+		return
+	}
+
+	if resp.Error != "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": resp.Error})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"total_manga":         resp.TotalManga,
+		"reading":             resp.Reading,
+		"completed":           resp.Completed,
+		"plan_to_read":        resp.PlanToRead,
+		"dropped":             resp.Dropped,
+		"on_hold":             resp.OnHold,
+		"re_reading":          resp.ReReading,
+		"total_chapters_read": resp.TotalChaptersRead,
+		"source":              "grpc",
+	})
+}
+
+// rateMangaViaGRPC submits a manga rating via gRPC service
+func (s *APIServer) rateMangaViaGRPC(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req struct {
+		MangaID string `json:"manga_id" binding:"required"`
+		Rating  int    `json:"rating" binding:"required,min=1,max=10"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "gRPC service unavailable"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.RateManga(ctx, userID, req.MangaID, int32(req.Rating))
+	if err != nil {
+		log.Printf("gRPC RateManga error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to rate manga via gRPC"})
+		return
+	}
+
+	if !resp.Success {
+		c.JSON(http.StatusBadRequest, gin.H{"error": resp.Error})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":        resp.Message,
+		"average_rating": resp.AverageRating,
+		"total_ratings":  resp.TotalRatings,
+		"user_rating":    req.Rating,
+		"source":         "grpc",
+		"success":        true,
+	})
+}
+
+// getMangaRatingsViaGRPC retrieves manga ratings via gRPC service
+func (s *APIServer) getMangaRatingsViaGRPC(c *gin.Context) {
+	mangaID := c.Param("manga_id")
+	userID := c.GetString("user_id")
+
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "gRPC service unavailable"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.GetMangaRatings(ctx, mangaID, userID)
+	if err != nil {
+		log.Printf("gRPC GetMangaRatings error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get ratings via gRPC"})
+		return
+	}
+
+	if resp.Error != "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": resp.Error})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"average_rating":      resp.AverageRating,
+		"total_ratings":       resp.TotalRatings,
+		"user_rating":         resp.UserRating,
+		"rating_distribution": resp.RatingDistribution,
+		"source":              "grpc",
+	})
+}
+
+// deleteRatingViaGRPC deletes user's manga rating via gRPC service
+func (s *APIServer) deleteRatingViaGRPC(c *gin.Context) {
+	userID := c.GetString("user_id")
+	mangaID := c.Param("manga_id")
+
+	if s.GRPCClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "gRPC service unavailable"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.GRPCClient.DeleteRating(ctx, userID, mangaID)
+	if err != nil {
+		log.Printf("gRPC DeleteRating error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete rating via gRPC"})
+		return
+	}
+
+	if !resp.Success {
+		c.JSON(http.StatusBadRequest, gin.H{"error": resp.Error})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": resp.Message,
+		"source":  "grpc",
+		"success": true,
+	})
+}
+
+// syncMangaFromMAL syncs manga from MAL to local database
+// Only stores manga that have chapters available on MangaDex/MangaPlus
+func (s *APIServer) syncMangaFromMAL(c *gin.Context) {
+	// Get query parameters
+	query := c.Query("query")
+	if query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter is required"})
+		return
+	}
+
+	limit := 20 // default
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil {
+			limit = parsedLimit
+		}
+	}
+
+	// Validate limit
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	log.Printf("Starting manga sync: query='%s', limit=%d", query, limit)
+
+	// Run sync
+	result, err := s.SyncService.SyncFromMAL(query, limit)
+	if err != nil {
+		log.Printf("Sync error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to sync manga from MAL",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"total_fetched": result.TotalFetched,
+		"synced":        result.Synced,
+		"skipped":       result.Skipped,
+		"failed":        result.Failed,
+		"details":       result.Details,
+		"message":       fmt.Sprintf("Synced %d out of %d manga", result.Synced, result.TotalFetched),
+	})
+}
+
+// syncMangaChapters forces a re-sync of chapters for manga that don't have chapters
+func (s *APIServer) syncMangaChapters(c *gin.Context) {
+	log.Println("Starting chapter sync for manga without chapters")
+
+	// Run the MangaDex sync which now checks for missing chapters
+	result, err := s.SyncService.SyncFromMangaDex(0) // 0 = unlimited
+	if err != nil {
+		log.Printf("Chapter sync error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to sync chapters",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"total_fetched": result.TotalFetched,
+		"synced":        result.Synced,
+		"skipped":       result.Skipped,
+		"failed":        result.Failed,
+		"message":       fmt.Sprintf("Synced chapters for %d manga", result.Synced),
+	})
+}
+
+// autoSyncManga runs on server startup to populate database with manga
+func (s *APIServer) autoSyncManga() {
+	log.Println("=================================================")
+	log.Println("Starting automatic manga sync on server startup")
+	log.Println("=================================================")
+
+	// Wait a bit for server to fully start
+	time.Sleep(2 * time.Second)
+
+	// Check how many manga we already have
+	var count int
+	db := database.GetDB()
+	err := db.QueryRow("SELECT COUNT(*) FROM manga").Scan(&count)
+	if err != nil {
+		log.Printf("ERROR: Failed to check manga count: %v", err)
+		return
+	}
+
+	log.Printf("Current manga in database: %d", count)
+	log.Println("Starting auto-sync (will skip existing manga)...")
+	log.Println("This will fetch ALL manga with readable chapters from MangaDex")
+	log.Println("Note: This will take a while. Use 0 for unlimited sync.")
+
+	// Sync directly from MangaDex (0 = unlimited, will fetch all available manga)
+	result, err := s.SyncService.SyncFromMangaDex(1000)
+	if err != nil {
+		log.Printf("ERROR: Auto-sync failed: %v", err)
+		return
+	}
+
+	log.Println("=================================================")
+	log.Printf("Auto-sync completed!")
+	log.Printf("  Total fetched: %d", result.TotalFetched)
+	log.Printf("  Synced: %d", result.Synced)
+	log.Printf("  Skipped: %d (includes already existing)", result.Skipped)
+	log.Printf("  Failed: %d", result.Failed)
+	log.Println("=================================================")
 }

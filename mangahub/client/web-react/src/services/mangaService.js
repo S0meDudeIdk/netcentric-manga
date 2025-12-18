@@ -9,7 +9,16 @@ const getBaseUrl = () => {
   return `${process.env.REACT_APP_BACKEND_URL}/api/v1/manga`;
 };
 
+const getGRPCBaseUrl = () => {
+  const port = '8080';
+  if (window.location.hostname === 'localhost') {
+    return `http://localhost:${port}/api/v1/grpc`;
+  }
+  return `${process.env.REACT_APP_BACKEND_URL}/api/v1/grpc`;
+};
+
 const BASE_URL = getBaseUrl();
+const GRPC_BASE_URL = getGRPCBaseUrl();
 const API_BASE = BASE_URL.replace('/manga', ''); // Remove /manga for user routes
 
 // Add auth header to requests (optional - only if user is logged in)
@@ -27,15 +36,77 @@ const getAuthHeaders = () => {
 };
 
 const mangaService = {
-  searchManga: async (query) => {
+  // Search local database via gRPC
+  searchLocal: async (query = '', limit = 25, offset = 0, sort = 'title') => {
     try {
-      const response = await axios.get(`${BASE_URL}?query=${encodeURIComponent(query)}`, {
+      // Use gRPC endpoint for local search with pagination and sorting
+      const params = { 
+        limit, 
+        offset,
+        sort
+      };
+      if (query) params.q = query;
+      
+      const response = await axios.get(`${GRPC_BASE_URL}/manga/search`, {
+        params,
         headers: getAuthHeaders()
       });
+      
+      // gRPC response structure: { manga: [], total: X, source: "grpc" }
+      if (response.data.manga) {
+        return {
+          manga: response.data.manga,
+          total: response.data.total,
+          count: response.data.total, // Add count for backward compatibility
+          source: 'grpc'
+        };
+      }
       return response.data;
     } catch (error) {
-      console.error('Error searching manga:', error);
-      throw error.response?.data || error;
+      console.error('Error searching via gRPC:', error);
+      // Fallback to REST API if gRPC fails
+      try {
+        const response = await axios.get(`${BASE_URL}/`, {
+          params: { limit, offset, query: query || undefined, sort },
+          headers: getAuthHeaders()
+        });
+        return response.data;
+      } catch (fallbackError) {
+        console.error('Fallback REST API also failed:', fallbackError);
+        throw fallbackError.response?.data || fallbackError;
+      }
+    }
+  },
+
+  searchManga: async (query) => {
+    try {
+      // Use gRPC endpoint for search
+      const response = await axios.get(`${GRPC_BASE_URL}/manga/search`, {
+        params: { q: query },
+        headers: getAuthHeaders()
+      });
+      
+      // gRPC response has different structure: { manga: [], total: X, source: "grpc" }
+      if (response.data.manga) {
+        return {
+          manga: response.data.manga,
+          total: response.data.total,
+          source: 'grpc'
+        };
+      }
+      return response.data;
+    } catch (error) {
+      console.error('Error searching manga via gRPC:', error);
+      // Fallback to REST API if gRPC fails
+      try {
+        const response = await axios.get(`${BASE_URL}?query=${encodeURIComponent(query)}`, {
+          headers: getAuthHeaders()
+        });
+        return response.data;
+      } catch (fallbackError) {
+        console.error('Fallback REST API also failed:', fallbackError);
+        throw fallbackError.response?.data || fallbackError;
+      }
     }
   },
 
@@ -53,13 +124,28 @@ const mangaService = {
 
   getMangaById: async (id) => {
     try {
-      const response = await axios.get(`${BASE_URL}/${id}`, {
+      // Use gRPC endpoint for getting manga by ID
+      const response = await axios.get(`${GRPC_BASE_URL}/manga/${id}`, {
         headers: getAuthHeaders()
       });
+      
+      // gRPC response includes source field
+      if (response.data.source === 'grpc') {
+        return response.data;
+      }
       return response.data;
     } catch (error) {
-      console.error('Error fetching manga:', error);
-      throw error.response?.data || error;
+      console.error('Error fetching manga via gRPC:', error);
+      // Fallback to REST API if gRPC fails
+      try {
+        const response = await axios.get(`${BASE_URL}/${id}`, {
+          headers: getAuthHeaders()
+        });
+        return response.data;
+      } catch (fallbackError) {
+        console.error('Fallback REST API also failed:', fallbackError);
+        throw fallbackError.response?.data || fallbackError;
+      }
     }
   },
 

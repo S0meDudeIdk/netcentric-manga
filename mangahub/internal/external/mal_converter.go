@@ -66,7 +66,7 @@ func ConvertMALToManga(mal *MALMangaNode) *models.Manga {
 	}
 
 	return &models.Manga{
-		ID:              fmt.Sprintf("mal-%d", mal.ID),
+		ID:              fmt.Sprintf("%d", mal.ID),
 		Title:           title,
 		Author:          author,
 		Genres:          genres,

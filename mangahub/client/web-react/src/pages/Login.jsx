@@ -5,7 +5,7 @@ import authService from '../services/authService';
 
 const Login = () => {
   const [formData, setFormData] = useState({
-    email: '',
+    email: '', // Can be email or username
     password: ''
   });
   const [showPassword, setShowPassword] = useState(false);

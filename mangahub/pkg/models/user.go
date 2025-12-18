@@ -22,7 +22,7 @@ type UserRegistration struct {
 
 // UserLogin represents the data needed for user login
 type UserLogin struct {
-	Email    string `json:"email" binding:"required,email"`
+	Email    string `json:"email" binding:"required"` // Can be email or username
 	Password string `json:"password" binding:"required"`
 }
 

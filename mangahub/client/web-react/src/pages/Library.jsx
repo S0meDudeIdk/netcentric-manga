@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Library as LibraryIcon, Book, Filter, CheckCircle2, Clock, XCircle, PauseCircle, Search, ChevronDown, Plus, RotateCw } from 'lucide-react';
-import userService from '../services/userService';
+import libraryService from '../services/libraryService';
 import MangaCard from '../components/MangaCard';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -19,7 +19,7 @@ const Library = () => {
   const fetchLibraryData = async () => {
     try {
       setLoading(true);
-      const libraryData = await userService.getLibrary();
+      const libraryData = await libraryService.getLibrary();
 
       // Flatten the library data from different status arrays into one
       const flatLibrary = [

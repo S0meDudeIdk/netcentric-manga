@@ -91,6 +91,138 @@ const grpcService = {
   },
 
   /**
+   * Get User Library via gRPC
+   * Retrieves user's manga library organized by status
+   * @returns {Promise<Object>} Library data with categorized manga
+   */
+  getLibrary: async () => {
+    try {
+      const response = await axios.get(`${BASE_URL}/library`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error getting library via gRPC:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  /**
+   * Add to Library via gRPC
+   * Adds a manga to user's library
+   * @param {string} mangaId - The manga ID
+   * @param {string} status - Reading status (reading, plan_to_read, etc.)
+   * @returns {Promise<Object>} Success message
+   */
+  addToLibrary: async (mangaId, status = 'plan_to_read') => {
+    try {
+      const response = await axios.post(`${BASE_URL}/library`, {
+        manga_id: mangaId,
+        status: status
+      }, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error adding to library via gRPC:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  /**
+   * Remove from Library via gRPC
+   * Removes a manga from user's library
+   * @param {string} mangaId - The manga ID
+   * @returns {Promise<Object>} Success message
+   */
+  removeFromLibrary: async (mangaId) => {
+    try {
+      const response = await axios.delete(`${BASE_URL}/library/${mangaId}`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error removing from library via gRPC:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  /**
+   * Get Library Stats via gRPC
+   * Retrieves user's library statistics
+   * @returns {Promise<Object>} Statistics about user's library
+   */
+  getLibraryStats: async () => {
+    try {
+      const response = await axios.get(`${BASE_URL}/library/stats`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error getting library stats via gRPC:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  /**
+   * Rate Manga via gRPC
+   * Submits or updates a rating for a manga
+   * @param {string} mangaId - The manga ID
+   * @param {number} rating - Rating value (1-10)
+   * @returns {Promise<Object>} Updated rating statistics
+   */
+  rateManga: async (mangaId, rating) => {
+    try {
+      const response = await axios.post(`${BASE_URL}/rating`, {
+        manga_id: mangaId,
+        rating: rating
+      }, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error rating manga via gRPC:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  /**
+   * Get Manga Ratings via gRPC
+   * Retrieves rating statistics for a manga
+   * @param {string} mangaId - The manga ID
+   * @returns {Promise<Object>} Rating statistics including user's rating
+   */
+  getMangaRatings: async (mangaId) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/rating/${mangaId}`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error getting manga ratings via gRPC:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  /**
+   * Delete Rating via gRPC
+   * Removes user's rating for a manga
+   * @param {string} mangaId - The manga ID
+   * @returns {Promise<Object>} Success message
+   */
+  deleteRating: async (mangaId) => {
+    try {
+      const response = await axios.delete(`${BASE_URL}/rating/${mangaId}`, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting rating via gRPC:', error);
+      throw error.response?.data || error;
+    }
+  },
+
+  /**
    * Check if gRPC service is available
    * @returns {Promise<boolean>} True if available, false otherwise
    */

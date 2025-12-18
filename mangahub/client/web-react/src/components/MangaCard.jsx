@@ -7,7 +7,19 @@ const MangaCard = ({ manga, index = 0 }) => {
   const navigate = useNavigate();
 
   const handleClick = () => {
-    navigate(`/manga/${manga.id}`);
+    // Determine the correct ID format for navigation
+    let mangaId = manga.id;
+    
+    // If manga has mal_id, it's from MAL search - format as mal-{id}
+    if (manga.mal_id) {
+      mangaId = `mal-${manga.mal_id}`;
+    }
+    // If manga.id is just a number (not prefixed), assume it's MAL
+    else if (manga.id && !manga.id.toString().includes('-') && !manga.id.toString().includes('_')) {
+      mangaId = `mal-${manga.id}`;
+    }
+    
+    navigate(`/manga/${mangaId}`);
   };
 
   return (

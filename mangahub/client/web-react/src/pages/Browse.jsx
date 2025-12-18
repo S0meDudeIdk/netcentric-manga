@@ -26,70 +26,39 @@ const Browse = () => {
     const pageParam = parseInt(searchParams.get('page')) || 1;
     const sortParam = searchParams.get('sort');
     
-    setCurrentPage(pageParam);
+    // Set sort based on URL parameter, default to 'title' if not specified
+    const newSort = sortParam && ['relevant', 'title', 'newest'].includes(sortParam) ? sortParam : 'title';
     
-    // Set sort based on URL parameter, default to 'popular' if not specified
-    const newSort = sortParam && ['popular', 'title', 'chapters', 'year'].includes(sortParam) ? sortParam : 'popular';
-    if (newSort !== sortBy) {
-      setSortBy(newSort);
-    }
+    // Update state synchronously
+    setCurrentPage(pageParam);
+    setSortBy(newSort);
     
     if (searchParam) {
       // If there's a search parameter, always do search
-      if (searchParam !== searchQuery) {
-        setSearchQuery(searchParam);
-      }
+      setSearchQuery(searchParam);
       handleSearch(searchParam, pageParam, newSort);
     } else {
       // No search parameter, clear search and browse normally
-      if (searchQuery) {
-        setSearchQuery('');
-      }
+      setSearchQuery('');
       fetchData(pageParam, newSort);
     }
-  }, [searchParams]); // Only depend on searchParams
+  }, [searchParams.toString()]); // Use toString() to avoid infinite loops
 
-  const fetchData = async (page = 1, currentSort = 'popular') => {
+  const fetchData = async (page = 1, currentSort = 'title') => {
     try {
       setLoading(true);
       setError(null);
       
-      // Map sortBy to Jikan API parameters
-      let orderBy = '';
-      let sort = '';
+      // Fetch from local database instead of MAL
+      const offset = (page - 1) * itemsPerPage;
+      const result = await mangaService.searchLocal('', itemsPerPage, offset, currentSort);
       
-      switch (currentSort) {
-        case 'year':
-          orderBy = 'start_date';
-          sort = 'desc';
-          break;
-        case 'chapters':
-          orderBy = 'chapters';
-          sort = 'desc';
-          break;
-        case 'title':
-          orderBy = 'title';
-          sort = 'asc';
-          break;
-        case 'popular':
-        default:
-          // Default is popularity, handled by /top endpoint
-          break;
-      }
+      setManga(result.manga || []);
       
-      const result = await mangaService.getTopMAL(page, itemsPerPage, orderBy, sort);
-      
-      setManga(result.data || []);
-      
-      if (result.pagination && result.pagination.items) {
-        setPagination(result.pagination);
-        setTotalItems(result.pagination.items.total);
-        setTotalPages(result.pagination.last_visible_page || Math.ceil(result.pagination.items.total / itemsPerPage));
-      } else {
-        // Fallback if no pagination info
-        setTotalItems(result.data?.length || 0);
-        setTotalPages(1);
-      }
+      // Calculate pagination based on count
+      const count = result.count || 0;
+      setTotalItems(count);
+      setTotalPages(Math.ceil(count / itemsPerPage) || 1);
     } catch (err) {
       console.error('Error fetching data:', err);
       setError(err.message);
@@ -99,7 +68,7 @@ const Browse = () => {
     }
   };
 
-  const handleSearch = async (query, page = 1, currentSort = 'popular') => {
+  const handleSearch = async (query, page = 1, currentSort = 'relevant') => {
     if (!query.trim()) {
       fetchData(page, currentSort);
       return;
@@ -109,42 +78,16 @@ const Browse = () => {
       setLoading(true);
       setError(null);
       
-      // Map sortBy to Jikan API parameters
-      let orderBy = '';
-      let sort = '';
+      // Search in local database
+      const offset = (page - 1) * itemsPerPage;
+      const result = await mangaService.searchLocal(query, itemsPerPage, offset, currentSort);
       
-      switch (currentSort) {
-        case 'year':
-          orderBy = 'start_date';
-          sort = 'desc';
-          break;
-        case 'chapters':
-          orderBy = 'chapters';
-          sort = 'desc';
-          break;
-        case 'title':
-          orderBy = 'title';
-          sort = 'asc';
-          break;
-        case 'popular':
-        default:
-          orderBy = 'popularity';
-          sort = 'asc';
-          break;
-      }
+      setManga(result.manga || []);
       
-      const result = await mangaService.searchMAL(query, page, itemsPerPage, orderBy, sort);
-      
-      setManga(result.data || []);
-      
-      if (result.pagination && result.pagination.items) {
-        setPagination(result.pagination);
-        setTotalItems(result.pagination.items.total);
-        setTotalPages(result.pagination.last_visible_page || Math.ceil(result.pagination.items.total / itemsPerPage));
-      } else {
-        setTotalItems(result.data?.length || 0);
-        setTotalPages(1);
-      }
+      // Calculate pagination based on count
+      const count = result.count || 0;
+      setTotalItems(count);
+      setTotalPages(Math.ceil(count / itemsPerPage) || 1);
     } catch (err) {
       console.error('Search error:', err);
       setError(err.message);
@@ -198,10 +141,8 @@ const Browse = () => {
                 <label className="block text-sm font-bold text-zinc-900 dark:text-white mb-3">Sort By</label>
                 <div className="space-y-1">
                   {[
-                    { value: 'popular', label: 'Most Popular' },
                     { value: 'title', label: 'Title (A-Z)' },
-                    { value: 'chapters', label: 'Most Chapters' },
-                    { value: 'year', label: 'Newest' }
+                    { value: 'newest', label: 'Newest' }
                   ].map(({ value, label }) => (
                     <button
                       key={value}

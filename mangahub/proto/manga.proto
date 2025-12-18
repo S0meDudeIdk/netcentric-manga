@@ -14,6 +14,22 @@ service MangaService {
   
   // UpdateProgress updates user's reading progress
   rpc UpdateProgress(ProgressRequest) returns (ProgressResponse);
+  
+  // Library Management
+  rpc GetLibrary(LibraryRequest) returns (LibraryResponse);
+  rpc AddToLibrary(AddToLibraryRequest) returns (AddToLibraryResponse);
+  rpc RemoveFromLibrary(RemoveFromLibraryRequest) returns (RemoveFromLibraryResponse);
+  rpc GetLibraryStats(LibraryStatsRequest) returns (LibraryStatsResponse);
+  
+  // Rating System
+  rpc RateManga(RatingRequest) returns (RatingResponse);
+  rpc GetMangaRatings(MangaRatingRequest) returns (MangaRatingResponse);
+  rpc DeleteRating(DeleteRatingRequest) returns (DeleteRatingResponse);
+  
+  // User Profile Management
+  rpc GetUserProfile(GetUserProfileRequest) returns (UserProfileResponse);
+  rpc UpdateUserProfile(UpdateUserProfileRequest) returns (UpdateUserProfileResponse);
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
 }
 
 // GetMangaRequest contains the manga ID to retrieve
@@ -32,6 +48,7 @@ message SearchRequest {
   string query = 1;
   int32 limit = 2;
   int32 offset = 3;
+  string sort = 4; // Sort field: title, author, rating, popular, etc.
 }
 
 // SearchResponse contains search results
@@ -69,4 +86,152 @@ message Manga {
   int32 publication_year = 9;
   double rating = 10;
   string created_at = 11;
+}
+
+// Library Management Messages
+
+message LibraryRequest {
+  string user_id = 1;
+}
+
+message UserProgress {
+  string manga_id = 1;
+  int32 current_chapter = 2;
+  string status = 3;
+  string last_updated = 4;
+  string title = 5;
+  string author = 6;
+  string cover_url = 7;
+}
+
+message LibraryResponse {
+  repeated UserProgress reading = 1;
+  repeated UserProgress completed = 2;
+  repeated UserProgress plan_to_read = 3;
+  repeated UserProgress dropped = 4;
+  repeated UserProgress on_hold = 5;
+  repeated UserProgress re_reading = 6;
+  string error = 7;
+}
+
+message AddToLibraryRequest {
+  string user_id = 1;
+  string manga_id = 2;
+  string status = 3; // reading, plan_to_read, etc.
+}
+
+message AddToLibraryResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+}
+
+message RemoveFromLibraryRequest {
+  string user_id = 1;
+  string manga_id = 2;
+}
+
+message RemoveFromLibraryResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+}
+
+message LibraryStatsRequest {
+  string user_id = 1;
+}
+
+message LibraryStatsResponse {
+  int32 total_manga = 1;
+  int32 reading = 2;
+  int32 completed = 3;
+  int32 plan_to_read = 4;
+  int32 dropped = 5;
+  int32 on_hold = 6;
+  int32 re_reading = 7;
+  int32 total_chapters_read = 8;
+  string error = 9;
+}
+
+// Rating System Messages
+
+message RatingRequest {
+  string user_id = 1;
+  string manga_id = 2;
+  int32 rating = 3; // 1-10
+}
+
+message RatingResponse {
+  bool success = 1;
+  string message = 2;
+  double average_rating = 3; // Updated average
+  int32 total_ratings = 4;
+  string error = 5;
+}
+
+message MangaRatingRequest {
+  string manga_id = 1;
+  string user_id = 2; // Optional: to get user's specific rating
+}
+
+message MangaRatingResponse {
+  double average_rating = 1;
+  int32 total_ratings = 2;
+  int32 user_rating = 3; // 0 if user hasn't rated
+  map<int32, int32> rating_distribution = 4; // Count of each rating (1-5)
+  string error = 5;
+}
+
+message DeleteRatingRequest {
+  string user_id = 1;
+  string manga_id = 2;
+}
+
+message DeleteRatingResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
+}
+
+// User Profile Management Messages
+
+message GetUserProfileRequest {
+  string user_id = 1;
+}
+
+message UserProfile {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  string created_at = 4;
+}
+
+message UserProfileResponse {
+  UserProfile profile = 1;
+  string error = 2;
+}
+
+message UpdateUserProfileRequest {
+  string user_id = 1;
+  string username = 2;
+  string email = 3;
+}
+
+message UpdateUserProfileResponse {
+  bool success = 1;
+  string message = 2;
+  UserProfile profile = 3;
+  string error = 4;
+}
+
+message ChangePasswordRequest {
+  string user_id = 1;
+  string old_password = 2;
+  string new_password = 3;
+}
+
+message ChangePasswordResponse {
+  bool success = 1;
+  string message = 2;
+  string error = 3;
 }

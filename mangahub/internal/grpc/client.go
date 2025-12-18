@@ -65,13 +65,16 @@ func (c *Client) GetManga(ctx context.Context, id string) (*pb.MangaResponse, er
 }
 
 // SearchManga searches for manga via gRPC
-func (c *Client) SearchManga(ctx context.Context, query string, limit int32) (*pb.SearchResponse, error) {
+func (c *Client) SearchManga(ctx context.Context, query string, limit, offset int32, sort string) (*pb.SearchResponse, error) {
 	req := &pb.SearchRequest{
-		Query: query,
-		Limit: limit,
+		Query:  query,
+		Limit:  limit,
+		Offset: offset,
+		Sort:   sort,
 	}
 
-	log.Printf("gRPC Client: Searching manga with query: %s", query)
+	log.Printf("gRPC Client: Searching manga with query: %s, limit: %d, offset: %d, sort: %s",
+		query, limit, offset, sort)
 
 	// Call the generated gRPC method
 	resp, err := c.client.SearchManga(ctx, req)
@@ -97,6 +100,177 @@ func (c *Client) UpdateProgress(ctx context.Context, userID, mangaID string, cur
 	resp, err := c.client.UpdateProgress(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("UpdateProgress RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// GetLibrary retrieves user's library via gRPC
+func (c *Client) GetLibrary(ctx context.Context, userID string) (*pb.LibraryResponse, error) {
+	req := &pb.LibraryRequest{
+		UserId: userID,
+	}
+
+	log.Printf("gRPC Client: Getting library for user %s", userID)
+
+	resp, err := c.client.GetLibrary(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("GetLibrary RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// AddToLibrary adds a manga to user's library via gRPC
+func (c *Client) AddToLibrary(ctx context.Context, userID, mangaID, status string) (*pb.AddToLibraryResponse, error) {
+	req := &pb.AddToLibraryRequest{
+		UserId:  userID,
+		MangaId: mangaID,
+		Status:  status,
+	}
+
+	log.Printf("gRPC Client: Adding manga %s to library for user %s", mangaID, userID)
+
+	resp, err := c.client.AddToLibrary(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("AddToLibrary RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// RemoveFromLibrary removes a manga from user's library via gRPC
+func (c *Client) RemoveFromLibrary(ctx context.Context, userID, mangaID string) (*pb.RemoveFromLibraryResponse, error) {
+	req := &pb.RemoveFromLibraryRequest{
+		UserId:  userID,
+		MangaId: mangaID,
+	}
+
+	log.Printf("gRPC Client: Removing manga %s from library for user %s", mangaID, userID)
+
+	resp, err := c.client.RemoveFromLibrary(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("RemoveFromLibrary RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// GetLibraryStats retrieves user's library statistics via gRPC
+func (c *Client) GetLibraryStats(ctx context.Context, userID string) (*pb.LibraryStatsResponse, error) {
+	req := &pb.LibraryStatsRequest{
+		UserId: userID,
+	}
+
+	log.Printf("gRPC Client: Getting library stats for user %s", userID)
+
+	resp, err := c.client.GetLibraryStats(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("GetLibraryStats RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// RateManga submits a rating for a manga via gRPC
+func (c *Client) RateManga(ctx context.Context, userID, mangaID string, rating int32) (*pb.RatingResponse, error) {
+	req := &pb.RatingRequest{
+		UserId:  userID,
+		MangaId: mangaID,
+		Rating:  rating,
+	}
+
+	log.Printf("gRPC Client: Rating manga %s with %d for user %s", mangaID, rating, userID)
+
+	resp, err := c.client.RateManga(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("RateManga RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// GetMangaRatings retrieves rating statistics for a manga via gRPC
+func (c *Client) GetMangaRatings(ctx context.Context, mangaID, userID string) (*pb.MangaRatingResponse, error) {
+	req := &pb.MangaRatingRequest{
+		MangaId: mangaID,
+		UserId:  userID,
+	}
+
+	log.Printf("gRPC Client: Getting ratings for manga %s", mangaID)
+
+	resp, err := c.client.GetMangaRatings(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("GetMangaRatings RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// DeleteRating deletes a user's rating for a manga via gRPC
+func (c *Client) DeleteRating(ctx context.Context, userID, mangaID string) (*pb.DeleteRatingResponse, error) {
+	req := &pb.DeleteRatingRequest{
+		UserId:  userID,
+		MangaId: mangaID,
+	}
+
+	log.Printf("gRPC Client: Deleting rating for manga %s by user %s", mangaID, userID)
+
+	resp, err := c.client.DeleteRating(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("DeleteRating RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// GetUserProfile gets a user's profile via gRPC
+func (c *Client) GetUserProfile(ctx context.Context, userID string) (*pb.UserProfileResponse, error) {
+	req := &pb.GetUserProfileRequest{
+		UserId: userID,
+	}
+
+	log.Printf("gRPC Client: Getting profile for user %s", userID)
+
+	resp, err := c.client.GetUserProfile(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("GetUserProfile RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// UpdateUserProfile updates a user's profile via gRPC
+func (c *Client) UpdateUserProfile(ctx context.Context, userID, username, email string) (*pb.UpdateUserProfileResponse, error) {
+	req := &pb.UpdateUserProfileRequest{
+		UserId:   userID,
+		Username: username,
+		Email:    email,
+	}
+
+	log.Printf("gRPC Client: Updating profile for user %s", userID)
+
+	resp, err := c.client.UpdateUserProfile(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("UpdateUserProfile RPC failed: %v", err)
+	}
+
+	return resp, nil
+}
+
+// ChangePassword changes a user's password via gRPC
+func (c *Client) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) (*pb.ChangePasswordResponse, error) {
+	req := &pb.ChangePasswordRequest{
+		UserId:      userID,
+		OldPassword: oldPassword,
+		NewPassword: newPassword,
+	}
+
+	log.Printf("gRPC Client: Changing password for user %s", userID)
+
+	resp, err := c.client.ChangePassword(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("ChangePassword RPC failed: %v", err)
 	}
 
 	return resp, nil

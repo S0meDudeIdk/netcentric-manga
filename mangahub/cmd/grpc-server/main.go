@@ -46,9 +46,10 @@ func main() {
 	// Create services
 	mangaService := manga.NewService()
 	userService := user.NewService()
+	ratingService := manga.NewRatingService()
 
 	// Create gRPC server
-	grpcServer := grpc.NewServer(mangaService, userService)
+	grpcServer := grpc.NewServer(mangaService, userService, ratingService)
 
 	// Connect to TCP server for broadcasting progress updates
 	if err := grpcServer.ConnectToTCP(tcpAddress); err != nil {
