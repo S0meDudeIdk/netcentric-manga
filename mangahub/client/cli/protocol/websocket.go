@@ -25,7 +25,7 @@ type User struct {
 	Username string `json:"username"`
 }
 
-// joinChatHub connects to a manga-specific chat room via WebSocket
+// JoinChatHub connects to a chat room via WebSocket (manga-specific or general)
 func (c *Client) JoinChatHub(mangaID, mangaTitle string) {
 	// Disconnect from previous room if connected
 	if c.wsConn != nil {
@@ -181,7 +181,7 @@ func (c *Client) HandleChatCommand(command string) {
 	case "/users":
 		// Request user list
 		msg := ChatMessage{
-			Type: "get_users",
+			Type: "user_list",
 		}
 		if err := c.wsConn.WriteJSON(msg); err != nil {
 			fmt.Printf("%s❌ Failed to request user list%s\n", colorRed, colorReset)

@@ -23,11 +23,11 @@ type ProgressSyncServer struct {
 }
 
 type ProgressUpdate struct {
-	UserID    string `json:"user_id"`
-	Username  string `json:"username"`
-	MangaID   string `json:"manga_id"`
-	Chapter   int    `json:"chapter"`
-	Timestamp int64  `json:"timestamp"`
+	UserID     string `json:"user_id"`
+	Username   string `json:"username"`
+	MangaTitle string `json:"manga_title"`
+	Chapter    int    `json:"chapter"`
+	Timestamp  int64  `json:"timestamp"`
 }
 
 func NewProgressSyncServer(port string) *ProgressSyncServer {
@@ -85,9 +85,33 @@ func (s *ProgressSyncServer) handleTCPClient(conn net.Conn) {
 	for scanner.Scan() {
 		message := scanner.Text()
 
+		// Handle PING keep-alive messages
+		if message == "PING" {
+			s.mu.Lock()
+			if client, exists := s.Connections[addr]; exists {
+				client.LastSeen = time.Now()
+				// Respond with PONG
+				client.Conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				client.Conn.Write([]byte("PONG\n"))
+			}
+			s.mu.Unlock()
+			continue
+		}
+
 		var update ProgressUpdate
 		if err := json.Unmarshal([]byte(message), &update); err != nil {
 			log.Printf("Error parsing message from %s: %v", addr, err)
+			continue
+		}
+
+		// Ignore empty/keep-alive messages (no manga title)
+		if update.MangaTitle == "" {
+			// Still update last seen
+			s.mu.Lock()
+			if client, exists := s.Connections[addr]; exists {
+				client.LastSeen = time.Now()
+			}
+			s.mu.Unlock()
 			continue
 		}
 
@@ -102,7 +126,7 @@ func (s *ProgressSyncServer) handleTCPClient(conn net.Conn) {
 		}
 		s.mu.Unlock()
 
-		log.Printf("Received progress update from %s: User=%s, Manga=%s, Chapter=%d", addr, update.UserID, update.MangaID, update.Chapter)
+		log.Printf("Received progress update from %s: User=%s, Manga=%s, Chapter=%d", addr, update.UserID, update.MangaTitle, update.Chapter)
 
 		s.Broadcast <- update
 	}

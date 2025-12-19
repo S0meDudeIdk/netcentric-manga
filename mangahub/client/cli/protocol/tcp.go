@@ -9,11 +9,11 @@ import (
 )
 
 type ProgressUpdate struct {
-	UserID    string `json:"user_id"`
-	Username  string `json:"username"`
-	MangaID   string `json:"manga_id"`
-	Chapter   int    `json:"chapter"`
-	Timestamp int64  `json:"timestamp"`
+	UserID     string `json:"user_id"`
+	Username   string `json:"username"`
+	MangaTitle string `json:"manga_title"`
+	Chapter    int    `json:"chapter"`
+	Timestamp  int64  `json:"timestamp"`
 }
 
 func (c *Client) listenTCPUpdates() {
@@ -55,13 +55,38 @@ func (c *Client) ConnectTCP() {
 
 	// Start listening for updates in background
 	go c.listenTCPUpdates()
+
+	// Start keep-alive pings
+	go c.tcpKeepAlive()
+}
+
+// tcpKeepAlive sends periodic PING messages to prevent timeout
+func (c *Client) tcpKeepAlive() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if !c.tcpEnabled || c.tcpConn == nil {
+			return
+		}
+
+		// Send PING keep-alive message
+		c.tcpConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		_, err := c.tcpConn.Write([]byte("PING\n"))
+		if err != nil {
+			// Connection lost
+			c.tcpEnabled = false
+			c.tcpConn = nil
+			return
+		}
+	}
 }
 
 // DisplayProgressUpdate formats and displays a TCP progress update
 func (c *Client) DisplayProgressUpdate(update ProgressUpdate) {
 	// Only show updates from other users
 	if update.UserID != c.UserID {
-		fmt.Printf("\n%s🔔 User update: %s is reading manga %s at chapter %d%s\n",
-			colorCyan, update.Username, update.MangaID, update.Chapter, colorReset)
+		fmt.Printf("\n%s🔔 User update: %s is reading '%s' at chapter %d%s\n",
+			colorCyan, update.Username, update.MangaTitle, update.Chapter, colorReset)
 	}
 }

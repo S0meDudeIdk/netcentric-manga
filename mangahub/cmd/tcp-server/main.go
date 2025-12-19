@@ -9,8 +9,25 @@ import (
 )
 
 func main() {
-	tcpPort := ":9000"
-	httpPort := ":9001"
+	// Get ports from environment or use defaults
+	tcpPort := os.Getenv("TCP_SERVER_PORT")
+	if tcpPort == "" {
+		tcpPort = "9001"
+	}
+	if tcpPort[0] != ':' {
+		tcpPort = ":" + tcpPort
+	}
+
+	httpPort := os.Getenv("TCP_SERVER_HTTP_PORT")
+	if httpPort == "" {
+		httpPort = "9010"
+	}
+	if httpPort[0] != ':' {
+		httpPort = ":" + httpPort
+	}
+
+	log.Printf("TCP Server starting on port %s", tcpPort)
+	log.Printf("TCP HTTP Trigger API starting on port %s", httpPort)
 
 	server := tcp.NewProgressSyncServer(tcpPort)
 

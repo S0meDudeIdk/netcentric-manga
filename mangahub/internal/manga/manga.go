@@ -397,7 +397,7 @@ func (s *Service) CreateManga(manga models.Manga) (*models.Manga, error) {
 	return &manga, nil
 }
 
-// UpdateManga updates an existing manga entry
+// UpdateManga updates an existing manga entry (partial update)
 func (s *Service) UpdateManga(id string, manga models.Manga) (*models.Manga, error) {
 	// Check if manga exists
 	existingManga, err := s.GetManga(id)
@@ -405,29 +405,71 @@ func (s *Service) UpdateManga(id string, manga models.Manga) (*models.Manga, err
 		return nil, err
 	}
 
-	// Set ID to ensure consistency
-	manga.ID = id
-	manga.CreatedAt = existingManga.CreatedAt
+	// Build dynamic update query based on provided fields
+	updates := []string{}
+	args := []interface{}{}
 
-	// Set genres JSON
-	if err := manga.SetGenres(manga.Genres); err != nil {
-		return nil, fmt.Errorf("failed to set genres: %w", err)
+	if manga.Title != "" {
+		updates = append(updates, "title = ?")
+		args = append(args, manga.Title)
 	}
 
-	// Update in database
-	_, err = s.db.Exec(`
-		UPDATE manga SET 
-		title = ?, author = ?, genres = ?, status = ?, 
-		total_chapters = ?, description = ?, cover_url = ?, publication_year = ?
-		WHERE id = ?`,
-		manga.Title, manga.Author, manga.GenresJSON, manga.Status,
-		manga.TotalChapters, manga.Description, manga.CoverURL, manga.PublicationYear, id)
+	if manga.Author != "" {
+		updates = append(updates, "author = ?")
+		args = append(args, manga.Author)
+	}
+
+	if len(manga.Genres) > 0 {
+		if err := manga.SetGenres(manga.Genres); err != nil {
+			return nil, fmt.Errorf("failed to set genres: %w", err)
+		}
+		updates = append(updates, "genres = ?")
+		args = append(args, manga.GenresJSON)
+	}
+
+	if manga.Status != "" {
+		updates = append(updates, "status = ?")
+		args = append(args, manga.Status)
+	}
+
+	if manga.TotalChapters > 0 {
+		updates = append(updates, "total_chapters = ?")
+		args = append(args, manga.TotalChapters)
+	}
+
+	if manga.Description != "" {
+		updates = append(updates, "description = ?")
+		args = append(args, manga.Description)
+	}
+
+	if manga.CoverURL != "" {
+		updates = append(updates, "cover_url = ?")
+		args = append(args, manga.CoverURL)
+	}
+
+	if manga.PublicationYear > 0 {
+		updates = append(updates, "publication_year = ?")
+		args = append(args, manga.PublicationYear)
+	}
+
+	// If no fields to update, return existing manga
+	if len(updates) == 0 {
+		return existingManga, nil
+	}
+
+	// Add ID to args for WHERE clause
+	args = append(args, id)
+
+	// Build and execute query
+	query := "UPDATE manga SET " + strings.Join(updates, ", ") + " WHERE id = ?"
+	_, err = s.db.Exec(query, args...)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to update manga: %w", err)
 	}
 
-	return &manga, nil
+	// Return updated manga
+	return s.GetManga(id)
 }
 
 // DeleteManga deletes a manga entry

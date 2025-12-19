@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -13,11 +12,27 @@ import (
 var server *udp.NotificationServer
 
 func main() {
-	port := flag.String("port", ":8081", "UDP server listen address (host:port)")
-	httpPort := flag.String("http", ":8082", "HTTP trigger API port")
-	flag.Parse()
+	// Get ports from environment or use defaults (fixed ports, no flags)
+	udpPort := os.Getenv("UDP_SERVER_PORT")
+	if udpPort == "" {
+		udpPort = "9002"
+	}
+	if udpPort[0] != ':' {
+		udpPort = ":" + udpPort
+	}
 
-	server = udp.NewNotificationServer(*port)
+	httpPort := os.Getenv("UDP_SERVER_HTTP_PORT")
+	if httpPort == "" {
+		httpPort = "9020"
+	}
+	if httpPort[0] != ':' {
+		httpPort = ":" + httpPort
+	}
+
+	log.Printf("UDP Server starting on port %s", udpPort)
+	log.Printf("UDP HTTP Trigger API starting on port %s", httpPort)
+
+	server = udp.NewNotificationServer(udpPort)
 
 	// Start UDP server in goroutine
 	go func() {
@@ -26,10 +41,10 @@ func main() {
 		}
 	}()
 
-	log.Printf("UDP Notification Server listening on %s", *port)
+	log.Printf("UDP Notification Server listening on %s", udpPort)
 
 	// Start HTTP trigger API
-	go server.StartHTTPTrigger(*httpPort)
+	go server.StartHTTPTrigger(httpPort)
 
 	// wait for termination signal for a graceful exit
 	sig := make(chan os.Signal, 1)

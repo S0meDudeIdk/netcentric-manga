@@ -55,11 +55,24 @@ func (s *Server) broadcastProgress(userID, mangaID string, chapter int) {
 		return
 	}
 
+	manga, err := s.MangaService.GetManga(mangaID)
+	if err != nil {
+		log.Printf("Failed to get manga for TCP broadcast: %v", err)
+		return
+	}
+
+	user, err := s.UserService.GetProfile(userID)
+	if err != nil {
+		log.Printf("Failed to get user profile for TCP broadcast: %v", err)
+		return
+	}
+
 	update := tcp.ProgressUpdate{
-		UserID:    userID,
-		MangaID:   mangaID,
-		Chapter:   chapter,
-		Timestamp: time.Now().Unix(),
+		UserID:     userID,
+		Username:   user.Username,
+		MangaTitle: manga.Title,
+		Chapter:    chapter,
+		Timestamp:  time.Now().Unix(),
 	}
 
 	message, err := json.Marshal(update)

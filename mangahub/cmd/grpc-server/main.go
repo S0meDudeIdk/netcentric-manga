@@ -34,7 +34,7 @@ func main() {
 	// Get gRPC server port from environment or use default
 	grpcPort := os.Getenv("GRPC_SERVER_PORT")
 	if grpcPort == "" {
-		grpcPort = "9001"
+		grpcPort = "9003"
 	}
 
 	// Get TCP server address from environment

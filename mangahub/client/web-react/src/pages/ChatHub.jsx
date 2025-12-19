@@ -237,7 +237,7 @@ const ChatHub = () => {
     } else {
       addNotification('Failed to send message');
     }
-  }, [messageInput, isConnected, mangaId]);
+  }, [messageInput, isConnected, mangaId, addNotification]);
 
   // Handle Enter key in message input
   const handleKeyPress = useCallback((e) => {
@@ -434,57 +434,57 @@ const ChatHub = () => {
             >
               {/* Messages Area */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4" style={{ minHeight: 0 }}>
-                {messages.length === 0 ? (
-                  <div className="text-center text-zinc-500 dark:text-zinc-400 py-8">
-                    <MessageCircle className="w-12 h-12 mx-auto mb-2 text-zinc-300 dark:text-zinc-600" />
-                    <p>No messages yet. Start the conversation!</p>
-                  </div>
-                ) : (
-                  messages.map((msg) => {
-                    if (msg.type === 'system' || msg.type === 'notification') {
-                      return (
-                        <div key={msg.id} className="text-center">
-                          <span className="inline-block px-3 py-1 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-sm rounded-full">
+                <AnimatePresence mode="popLayout">
+                  {messages.length === 0 ? (
+                    <div className="text-center text-zinc-500 dark:text-zinc-400 py-8">
+                      <MessageCircle className="w-12 h-12 mx-auto mb-2 text-zinc-300 dark:text-zinc-600" />
+                      <p>No messages yet. Start the conversation!</p>
+                    </div>
+                  ) : (
+                    messages.map((msg, index) => (
+                      <motion.div
+                        key={index}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className={`${
+                          msg.type === 'system' || msg.type === 'notification'
+                            ? 'flex justify-center'
+                            : msg.username === currentUser?.username
+                            ? 'flex justify-end'
+                            : 'flex justify-start'
+                        }`}
+                      >
+                        {msg.type === 'system' || msg.type === 'notification' ? (
+                          <div className="text-xs text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800/50 px-3 py-1 rounded-full">
                             {msg.type === 'notification' && <Bell className="w-3 h-3 inline mr-1" />}
                             {msg.message}
-                          </span>
-                        </div>
-                      );
-                    }
-
-                    const isOwn = msg.user_id === currentUser?.user_id;
-                    return (
-                      <motion.div
-                        key={msg.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className={`flex items-start gap-3 ${isOwn ? 'justify-end' : 'justify-start'}`}
-                      >
-                        {!isOwn && (
-                          <div className="w-10 h-10 bg-gradient-to-br from-primary to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
-                            <User className="w-5 h-5 text-white" />
                           </div>
-                        )}
-                        <div className={`max-w-[70%] ${isOwn ? 'bg-primary text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white'} rounded-2xl px-4 py-3`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-sm font-bold ${isOwn ? 'text-white' : 'text-zinc-900 dark:text-white'}`}>
-                              {msg.username}
-                            </span>
-                            <span className={`text-xs ${isOwn ? 'text-white/70' : 'text-zinc-500 dark:text-zinc-400'}`}>
-                              {new Date(msg.timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                          <p className="text-sm break-words">{msg.message}</p>
-                        </div>
-                        {isOwn && (
-                          <div className="w-10 h-10 bg-gradient-to-br from-primary to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
-                            <User className="w-5 h-5 text-white" />
+                        ) : (
+                          <div className={`max-w-[70%] ${
+                            msg.username === currentUser?.username ? 'items-end' : 'items-start'
+                          } flex flex-col gap-1`}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                                {msg.username}
+                              </span>
+                              <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                                {new Date(msg.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div className={`px-4 py-2 rounded-2xl ${
+                              msg.username === currentUser?.username
+                                ? 'bg-primary text-white'
+                                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white'
+                            }`}>
+                              <p className="text-sm break-words">{msg.message}</p>
+                            </div>
                           </div>
                         )}
                       </motion.div>
-                    );
-                  })
-                )}
+                    ))
+                  )}
+                </AnimatePresence>
                 <div ref={messagesEndRef} />
               </div>
 

@@ -294,6 +294,11 @@ func (r *ChatRoom) readWebSocketMessages(client *ClientConnection) {
 		// Reset read deadline on every message
 		client.Conn.SetReadDeadline(time.Now().Add(pongWait))
 
+		if msg.Type == "user_list" {
+			r.sendUserList()
+			continue
+		}
+
 		// Set message metadata
 		msg.UserID = client.UserID
 		msg.Username = client.Username

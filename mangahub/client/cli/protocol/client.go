@@ -18,12 +18,12 @@ import (
 
 const (
 	baseURL = "http://localhost:8080"
-	tcpAddr = "localhost:9000"
-	udpAddr = "localhost:8081"
+	tcpAddr = "localhost:9001"
+	udpAddr = "localhost:9002"
 	apiURL  = baseURL + "/api/v1"
 	// baseURL = "http://10.11.240.116:8080"
-	// tcpAddr = "10.11.240.116:9000"
-	// udpAddr = "10.11.240.116:8081"
+	// tcpAddr = "10.11.240.116:9001"
+	// udpAddr = "10.11.240.116:9002"
 )
 
 // Color codes
@@ -155,7 +155,8 @@ func (c *Client) UserMenu() {
 	fmt.Println("3. Search MyAnimeList")
 	fmt.Println("4. My Library")
 	fmt.Println("5. Get Recommendations")
-	fmt.Println("6. Logout")
+	fmt.Println("6. Join General Chat")
+	fmt.Println("7. Logout")
 	fmt.Print("\nSelect an option: ")
 
 	choice := c.readInput()
@@ -173,6 +174,8 @@ func (c *Client) UserMenu() {
 	case "5":
 		c.GetRecommendations()
 	case "6":
+		c.JoinChatHub("general", "General Chat")
+	case "7":
 		c.Logout()
 	default:
 		fmt.Println(colorRed + "❌ Invalid option" + colorReset)
