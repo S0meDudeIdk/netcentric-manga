@@ -26,7 +26,7 @@ type User struct {
 }
 
 // JoinChatHub connects to a chat room via WebSocket (manga-specific or general)
-func (c *Client) JoinChatHub(mangaID, mangaTitle string) {
+func (c *Client) JoinChatHub(baseURL, mangaID, mangaTitle string) {
 	// Disconnect from previous room if connected
 	if c.wsConn != nil {
 		c.wsConn.Close()
@@ -36,8 +36,12 @@ func (c *Client) JoinChatHub(mangaID, mangaTitle string) {
 
 	fmt.Printf("\n%s💬 Joining Chat Hub: %s%s\n", colorCyan, mangaTitle, colorReset)
 
+	// Convert HTTP base URL to WebSocket URL
+	wsBase := strings.Replace(baseURL, "http://", "ws://", 1)
+	wsBase = strings.Replace(wsBase, "https://", "wss://", 1)
+
 	// Build WebSocket URL with room and token
-	wsURL := fmt.Sprintf("ws://localhost:8080/api/v1/ws/chat?token=%s&room=%s", c.Token, mangaID)
+	wsURL := fmt.Sprintf("%s/api/v1/ws/chat?token=%s&room=%s", wsBase, c.Token, mangaID)
 
 	// Connect to WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)

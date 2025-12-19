@@ -174,7 +174,7 @@ func (c *Client) UserMenu() {
 	case "5":
 		c.GetRecommendations()
 	case "6":
-		c.JoinChatHub("general", "General Chat")
+		c.JoinChatHub(baseURL, "general", "General Chat")
 	case "7":
 		c.Logout()
 	default:
@@ -447,7 +447,7 @@ func (c *Client) ViewMangaDetails(manga Manga) {
 	case "1":
 		c.AddToLibrary(manga.ID)
 	case "2":
-		c.JoinChatHub(manga.ID, manga.Title)
+		c.JoinChatHub(baseURL, manga.ID, manga.Title)
 	}
 }
 
