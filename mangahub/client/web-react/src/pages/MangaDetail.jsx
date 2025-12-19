@@ -431,11 +431,11 @@ const MangaDetail = () => {
       <div className="container mx-auto px-4">
         {/* Back Button */}
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate('/browse')}
           className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white mb-8 transition-colors group"
         >
           <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-          <span>Back</span>
+          <span>Back to Browse</span>
         </button>
 
         {/* Manga Details */}

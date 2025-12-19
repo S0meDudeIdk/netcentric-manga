@@ -233,6 +233,7 @@ const ChatHub = () => {
     
     const sent = websocketService.send(mangaId, message);
     if (sent) {
+      // Clear input - message will appear via WebSocket broadcast to all clients
       setMessageInput('');
     } else {
       addNotification('Failed to send message');

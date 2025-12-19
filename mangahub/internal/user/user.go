@@ -280,6 +280,7 @@ func (s *Service) AddToLibrary(userID string, req models.AddToLibraryRequest) er
 }
 
 // UpdateProgress updates user's reading progress for a manga
+// If the manga is not in the user's library, it will be added automatically
 func (s *Service) UpdateProgress(userID string, req models.UpdateProgressRequest) error {
 	// Check if user has this manga in their library
 	var exists bool
@@ -289,8 +290,17 @@ func (s *Service) UpdateProgress(userID string, req models.UpdateProgressRequest
 	if err != nil {
 		return fmt.Errorf("failed to check progress existence: %w", err)
 	}
+
 	if !exists {
-		return fmt.Errorf("manga not found in user's library")
+		// Auto-add manga to library with the provided status
+		_, err = s.db.Exec(`
+			INSERT INTO user_progress (user_id, manga_id, current_chapter, status, added_at, last_updated)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			userID, req.MangaID, req.CurrentChapter, req.Status, time.Now(), time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to add manga to library: %w", err)
+		}
+		return nil
 	}
 
 	// Update progress

@@ -151,15 +151,7 @@ const GeneralChat = () => {
 
     const sent = websocketService.send('general', message);
     if (sent) {
-      // Optimistically add message to UI immediately
-      setMessages(prev => [...prev, {
-        id: `${currentUser?.user_id || 'temp'}-${Date.now()}`,
-        user_id: currentUser?.user_id,
-        username: currentUser?.username,
-        message: messageInput.trim(),
-        timestamp: Date.now(),
-        type: 'message'
-      }]);
+      // Clear input - message will appear via WebSocket broadcast
       setMessageInput('');
     } else {
       console.error('Failed to send message');
