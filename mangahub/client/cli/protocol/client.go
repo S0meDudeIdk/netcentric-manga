@@ -3,6 +3,7 @@ package protocol
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,17 +14,21 @@ import (
 	"strings"
 	"time"
 
+	grpcClient "mangahub/internal/grpc"
+
 	"github.com/gorilla/websocket"
 )
 
 const (
-	baseURL = "http://localhost:8080"
-	tcpAddr = "localhost:9001"
-	udpAddr = "localhost:9002"
-	apiURL  = baseURL + "/api/v1"
+	baseURL  = "http://localhost:8080"
+	tcpAddr  = "localhost:9001"
+	udpAddr  = "localhost:9002"
+	grpcAddr = "localhost:9003"
+	apiURL   = baseURL + "/api/v1"
 	// baseURL = "http://10.11.240.116:8080"
 	// tcpAddr = "10.11.240.116:9001"
 	// udpAddr = "10.11.240.116:9002"
+	// grpcAddr = "10.11.240.116:9003"
 )
 
 // Color codes
@@ -40,18 +45,21 @@ const (
 
 // Client represents the MangaHub CLI client
 type Client struct {
-	Token       string
-	Username    string
-	Email       string
-	UserID      string
-	scanner     *bufio.Scanner
-	tcpConn     net.Conn
-	tcpEnabled  bool
-	udpConn     *net.UDPConn
-	udpEnabled  bool
-	wsConn      *websocket.Conn
-	wsEnabled   bool
-	currentRoom string
+	Token        string
+	Username     string
+	Email        string
+	UserID       string
+	scanner      *bufio.Scanner
+	tcpConn      net.Conn
+	tcpEnabled   bool
+	udpConn      *net.UDPConn
+	udpEnabled   bool
+	wsConn       *websocket.Conn
+	wsEnabled    bool
+	currentRoom  string
+	grpcClient   *grpcClient.Client
+	grpcEnabled  bool
+	messageCount int
 }
 
 func NewClient() *Client {
@@ -129,6 +137,13 @@ func (c *Client) UserMenu() {
 	fmt.Println(colorYellow + "\n📚 Main Menu" + colorReset)
 	fmt.Printf(colorCyan+"Logged in as: %s (%s)\n"+colorReset, c.Username, c.Email)
 
+	// Show gRPC status
+	if c.grpcEnabled {
+		fmt.Printf(colorGreen + "⚡ gRPC: CONNECTED\n" + colorReset)
+	} else {
+		fmt.Printf(colorYellow + "⚡ gRPC: OFFLINE\n" + colorReset)
+	}
+
 	// Show TCP sync status
 	if c.tcpEnabled {
 		fmt.Printf(colorGreen + "📡 Real-time sync: ENABLED\n" + colorReset)
@@ -152,11 +167,10 @@ func (c *Client) UserMenu() {
 
 	fmt.Println("\n1. Browse Manga")
 	fmt.Println("2. Search Manga")
-	fmt.Println("3. Search MyAnimeList")
-	fmt.Println("4. My Library")
-	fmt.Println("5. Get Recommendations")
-	fmt.Println("6. Join General Chat")
-	fmt.Println("7. Logout")
+	fmt.Println("3. My Library")
+	fmt.Println("4. Get Recommendations")
+	fmt.Println("5. Join General Chat")
+	fmt.Println("6. Logout")
 	fmt.Print("\nSelect an option: ")
 
 	choice := c.readInput()
@@ -168,14 +182,12 @@ func (c *Client) UserMenu() {
 	case "2":
 		c.SearchManga()
 	case "3":
-		c.SearchMAL()
-	case "4":
 		c.MyLibrary()
-	case "5":
+	case "4":
 		c.GetRecommendations()
-	case "6":
+	case "5":
 		c.JoinChatHub(baseURL, "general", "General Chat")
-	case "7":
+	case "6":
 		c.Logout()
 	default:
 		fmt.Println(colorRed + "❌ Invalid option" + colorReset)
@@ -216,6 +228,9 @@ func (c *Client) Login() {
 			}
 		}
 		fmt.Println(colorGreen + "✅ Login successful!" + colorReset)
+
+		// Try to connect to gRPC server
+		c.ConnectGRPC()
 
 		// Try to connect to TCP server for real-time sync
 		c.ConnectTCP()
@@ -294,41 +309,154 @@ func (c *Client) Register() {
 
 func (c *Client) BrowseManga() {
 	fmt.Println(colorCyan + "📖 Browse Popular Manga" + colorReset)
-	fmt.Print("How many results? (default 10): ")
-	limitStr := c.readInput()
+
+	page := 1
 	limit := 10
-	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
+
+	for {
+		offset := (page - 1) * limit
+
+		var mangaList []Manga
+		var total int
+
+		// Try gRPC first, fallback to REST API
+		if c.grpcEnabled && c.grpcClient != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			resp, err := c.grpcClient.SearchManga(ctx, "", int32(limit), int32(offset), "popular")
+			cancel()
+
+			if err != nil {
+				fmt.Printf("%s⚠️  gRPC error: %v, falling back to REST API%s\n", colorYellow, err, colorReset)
+				c.grpcEnabled = false
+			} else {
+				// Convert gRPC response to local Manga type
+				for _, m := range resp.Manga {
+					mangaList = append(mangaList, Manga{
+						ID:            m.Id,
+						Title:         m.Title,
+						Author:        m.Author,
+						Genres:        m.Genres,
+						Status:        m.Status,
+						TotalChapters: int(m.TotalChapters),
+						Description:   m.Description,
+						CoverURL:      m.CoverUrl,
+					})
+				}
+				total = int(resp.Total)
+			}
 		}
-	}
 
-	url := fmt.Sprintf("%s/manga/popular?limit=%d", apiURL, limit)
-	resp, err := c.makeRequest("GET", url, nil, true)
-	if err != nil {
-		fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
-		return
-	}
+		// Fallback to REST API if gRPC failed
+		if !c.grpcEnabled {
+			url := fmt.Sprintf("%s/manga/popular?limit=%d&offset=%d", apiURL, limit, offset)
+			resp, err := c.makeRequest("GET", url, nil, true)
+			if err != nil {
+				fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
+				return
+			}
 
-	var result struct {
-		Manga []Manga `json:"manga"`
-		Count int     `json:"count"`
-	}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
-		return
-	}
+			var result struct {
+				Manga []Manga `json:"manga"`
+				Count int     `json:"count"`
+				Total int     `json:"total"`
+			}
+			if err := json.Unmarshal(resp, &result); err != nil {
+				fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
+				return
+			}
+			mangaList = result.Manga
+			total = result.Total
+		}
 
-	fmt.Printf("\n%s📚 Found %d manga:%s\n\n", colorGreen, result.Count, colorReset)
-	for i, manga := range result.Manga {
-		c.DisplayManga(i+1, manga)
-	}
+		if len(mangaList) == 0 {
+			fmt.Println(colorYellow + "⚠️  No manga found on this page" + colorReset)
+			if page > 1 {
+				page--
+			}
+			continue
+		}
 
-	fmt.Print("\nEnter manga number to view details (or press Enter to return): ")
-	choice := c.readInput()
-	if choice != "" {
-		if idx, err := strconv.Atoi(choice); err == nil && idx > 0 && idx <= len(result.Manga) {
-			c.ViewMangaDetails(result.Manga[idx-1])
+		// Fix pagination calculation when total is 0
+		totalPages := 1
+		if total > 0 {
+			totalPages = (total + limit - 1) / limit
+		} else {
+			// Estimate based on results
+			if len(mangaList) == limit {
+				totalPages = page + 1
+			} else {
+				totalPages = page
+			}
+		}
+		fmt.Printf("\n%s📚 Page %d/%d (Total: %d manga)%s\n\n", colorGreen, page, totalPages, total, colorReset)
+
+		for i, manga := range mangaList {
+			c.DisplayManga(i+1, manga)
+		}
+
+		fmt.Println("\n" + colorYellow + "Commands:" + colorReset)
+		fmt.Println("  [number] - View manga details")
+		fmt.Println("  [n] - Next page")
+		fmt.Println("  [p] - Previous page")
+		fmt.Println("  [j number] - Jump to page")
+		fmt.Println("  [q] - Quit")
+		fmt.Print("\nChoice: ")
+
+		choice := c.readInput()
+
+		// Check for jump command (j number)
+		if strings.HasPrefix(strings.ToLower(choice), "j ") {
+			parts := strings.Fields(choice)
+			if len(parts) == 2 {
+				if jumpPage, err := strconv.Atoi(parts[1]); err == nil {
+					if jumpPage >= 1 && jumpPage <= totalPages {
+						page = jumpPage
+					} else {
+						fmt.Printf("%s⚠️  Page %d does not exist (valid range: 1-%d)%s\n", colorYellow, jumpPage, totalPages, colorReset)
+						fmt.Print("Press Enter to continue...")
+						c.readInput()
+					}
+				} else {
+					fmt.Println(colorRed + "❌ Invalid page number" + colorReset)
+					fmt.Print("Press Enter to continue...")
+					c.readInput()
+				}
+			} else {
+				fmt.Println(colorRed + "❌ Usage: j <page number>" + colorReset)
+				fmt.Print("Press Enter to continue...")
+				c.readInput()
+			}
+			continue
+		}
+
+		switch strings.ToLower(choice) {
+		case "n":
+			if page < totalPages {
+				page++
+			} else {
+				fmt.Println(colorYellow + "⚠️  Already on last page" + colorReset)
+				fmt.Print("Press Enter to continue...")
+				c.readInput()
+			}
+		case "p":
+			if page > 1 {
+				page--
+			} else {
+				fmt.Println(colorYellow + "⚠️  Already on first page" + colorReset)
+				fmt.Print("Press Enter to continue...")
+				c.readInput()
+			}
+		case "q", "":
+			return
+		default:
+			if idx, err := strconv.Atoi(choice); err == nil && idx > 0 && idx <= len(mangaList) {
+				c.ViewMangaDetails(mangaList[idx-1])
+				// Return to browse after viewing details
+			} else {
+				fmt.Println(colorRed + "❌ Invalid choice" + colorReset)
+				fmt.Print("Press Enter to continue...")
+				c.readInput()
+			}
 		}
 	}
 }
@@ -342,32 +470,158 @@ func (c *Client) SearchManga() {
 		return
 	}
 
-	url := fmt.Sprintf("%s/manga?query=%s", apiURL, query)
-	resp, err := c.makeRequest("GET", url, nil, true)
-	if err != nil {
-		fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
-		return
-	}
+	page := 1
+	limit := 10
 
-	var result struct {
-		Manga []Manga `json:"manga"`
-		Count int     `json:"count"`
-	}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
-		return
-	}
+	for {
+		offset := (page - 1) * limit
 
-	fmt.Printf("\n%s🔍 Found %d manga matching '%s':%s\n\n", colorGreen, result.Count, query, colorReset)
-	for i, manga := range result.Manga {
-		c.DisplayManga(i+1, manga)
-	}
+		var mangaList []Manga
+		var total int
 
-	fmt.Print("\nEnter manga number to view details (or press Enter to return): ")
-	choice := c.readInput()
-	if choice != "" {
-		if idx, err := strconv.Atoi(choice); err == nil && idx > 0 && idx <= len(result.Manga) {
-			c.ViewMangaDetails(result.Manga[idx-1])
+		// Try gRPC first, fallback to REST API
+		if c.grpcEnabled && c.grpcClient != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			resp, err := c.grpcClient.SearchManga(ctx, query, int32(limit), int32(offset), "")
+			cancel()
+
+			if err != nil {
+				fmt.Printf("%s⚠️  gRPC error: %v, falling back to REST API%s\n", colorYellow, err, colorReset)
+				c.grpcEnabled = false
+			} else {
+				// Convert gRPC response to local Manga type
+				for _, m := range resp.Manga {
+					mangaList = append(mangaList, Manga{
+						ID:            m.Id,
+						Title:         m.Title,
+						Author:        m.Author,
+						Genres:        m.Genres,
+						Status:        m.Status,
+						TotalChapters: int(m.TotalChapters),
+						Description:   m.Description,
+						CoverURL:      m.CoverUrl,
+					})
+				}
+				total = int(resp.Total)
+			}
+		}
+
+		// Fallback to REST API if gRPC failed
+		if !c.grpcEnabled {
+			url := fmt.Sprintf("%s/manga?query=%s&limit=%d&offset=%d", apiURL, query, limit, offset)
+			resp, err := c.makeRequest("GET", url, nil, true)
+			if err != nil {
+				fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
+				return
+			}
+
+			var result struct {
+				Manga []Manga `json:"manga"`
+				Count int     `json:"count"`
+				Total int     `json:"total"`
+			}
+			if err := json.Unmarshal(resp, &result); err != nil {
+				fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
+				return
+			}
+			mangaList = result.Manga
+			total = result.Total
+		}
+
+		if len(mangaList) == 0 {
+			if page == 1 {
+				fmt.Printf("\n%s⚠️  No manga found matching '%s'%s\n", colorYellow, query, colorReset)
+				return
+			} else {
+				fmt.Println(colorYellow + "⚠️  No manga found on this page" + colorReset)
+				if page > 1 {
+					page--
+				}
+				continue
+			}
+		}
+
+		// Fix pagination calculation when total is 0
+		totalPages := 1
+		if total > 0 {
+			totalPages = (total + limit - 1) / limit
+		} else {
+			// Estimate based on results
+			if len(mangaList) == limit {
+				totalPages = page + 1
+			} else {
+				totalPages = page
+			}
+		}
+		fmt.Printf("\n%s🔍 Page %d/%d - Found %d manga matching '%s'%s\n\n", colorGreen, page, totalPages, total, query, colorReset)
+
+		for i, manga := range mangaList {
+			c.DisplayManga(i+1, manga)
+		}
+
+		fmt.Println("\n" + colorYellow + "Commands:" + colorReset)
+		fmt.Println("  [number] - View manga details")
+		fmt.Println("  [n] - Next page")
+		fmt.Println("  [p] - Previous page")
+		fmt.Println("  [j number] - Jump to page")
+		fmt.Println("  [q] - Quit")
+		fmt.Print("\nChoice: ")
+
+		choice := c.readInput()
+
+		// Check for jump command (j number)
+		if strings.HasPrefix(strings.ToLower(choice), "j ") {
+			parts := strings.Fields(choice)
+			if len(parts) == 2 {
+				if jumpPage, err := strconv.Atoi(parts[1]); err == nil {
+					if jumpPage >= 1 && jumpPage <= totalPages {
+						page = jumpPage
+					} else {
+						fmt.Printf("%s⚠️  Page %d does not exist (valid range: 1-%d)%s\n", colorYellow, jumpPage, totalPages, colorReset)
+						fmt.Print("Press Enter to continue...")
+						c.readInput()
+					}
+				} else {
+					fmt.Println(colorRed + "❌ Invalid page number" + colorReset)
+					fmt.Print("Press Enter to continue...")
+					c.readInput()
+				}
+			} else {
+				fmt.Println(colorRed + "❌ Usage: j <page number>" + colorReset)
+				fmt.Print("Press Enter to continue...")
+				c.readInput()
+			}
+			continue
+		}
+
+		switch strings.ToLower(choice) {
+		case "n":
+			if page < totalPages {
+				page++
+			} else {
+				fmt.Println(colorYellow + "⚠️  Already on last page" + colorReset)
+				fmt.Print("Press Enter to continue...")
+				c.readInput()
+			}
+		case "p":
+			if page > 1 {
+				page--
+			} else {
+				fmt.Println(colorYellow + "⚠️  Already on first page" + colorReset)
+				fmt.Print("Press Enter to continue...")
+				c.readInput()
+			}
+		case "q", "":
+			return
+		default:
+			if idx, err := strconv.Atoi(choice); err == nil && idx > 0 && idx <= len(mangaList) {
+				c.ViewMangaDetails(mangaList[idx-1])
+				// Return to search after viewing details
+			} else {
+				fmt.Println(colorRed + "❌ Invalid choice" + colorReset)
+				fmt.Print("Press Enter to continue...")
+				c.readInput()
+			}
 		}
 	}
 }
@@ -427,6 +681,27 @@ func (c *Client) ViewMALMangaDetails(manga Manga) {
 }
 
 func (c *Client) ViewMangaDetails(manga Manga) {
+	// Try to get fresh details via gRPC
+	if c.grpcEnabled && c.grpcClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := c.grpcClient.GetManga(ctx, manga.ID)
+		cancel()
+
+		if err == nil && resp.Manga != nil {
+			// Update manga with fresh data from gRPC
+			manga = Manga{
+				ID:            resp.Manga.Id,
+				Title:         resp.Manga.Title,
+				Author:        resp.Manga.Author,
+				Genres:        resp.Manga.Genres,
+				Status:        resp.Manga.Status,
+				TotalChapters: int(resp.Manga.TotalChapters),
+				Description:   resp.Manga.Description,
+				CoverURL:      resp.Manga.CoverUrl,
+			}
+		}
+	}
+
 	fmt.Println("\n" + strings.Repeat("═", 60))
 	fmt.Printf("%s📖 %s%s\n", colorCyan, manga.Title, colorReset)
 	fmt.Println(strings.Repeat("═", 60))
@@ -658,6 +933,13 @@ func (c *Client) Logout() {
 		c.wsConn = nil
 		c.wsEnabled = false
 		c.currentRoom = ""
+	}
+
+	// Disconnect from gRPC
+	if c.grpcClient != nil {
+		c.grpcClient.Close()
+		c.grpcClient = nil
+		c.grpcEnabled = false
 	}
 
 	fmt.Println(colorGreen + "✅ Logged out successfully" + colorReset)
