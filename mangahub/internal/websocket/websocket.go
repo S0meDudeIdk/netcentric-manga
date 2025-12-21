@@ -485,8 +485,6 @@ func (h *ChatHub) BroadcastNotification(mangaID, notificationType, message strin
 		Username:  "System",
 	}
 
-	log.Printf("Broadcasting notification: Type=%s, MangaID=%s, Message=%s", notificationType, mangaID, message)
-
 	select {
 	case h.NotificationChannel <- notification:
 		// Queued successfully - actual broadcast logged in Run()

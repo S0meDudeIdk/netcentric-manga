@@ -36,8 +36,7 @@ const Library = () => {
           id: item.manga_id,
           title: item.title,
           author: item.author,
-          cover_url: item.cover_url,
-          total_chapters: item.total_chapters
+          cover_url: item.cover_url
         }
       }));
 
@@ -180,13 +179,7 @@ const Library = () => {
                 className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4"
               >
                 {filteredLibrary.map((item, idx) => (
-                  <MangaCard 
-                    key={item.manga_id} 
-                    manga={item.manga} 
-                    index={idx}
-                    showProgress={true}
-                    currentChapter={item.current_chapter || 0}
-                  />
+                  <MangaCard key={item.manga_id} manga={item.manga} index={idx} />
                 ))}
               </motion.div>
             ) : (

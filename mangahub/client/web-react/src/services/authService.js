@@ -2,12 +2,10 @@ import axios from 'axios';
 
 const getBaseUrl = () => {
   const port = '8080';
-  // Use environment variable if set, otherwise use current hostname
-  if (process.env.REACT_APP_BACKEND_URL) {
-    return `${process.env.REACT_APP_BACKEND_URL}/api/v1/auth`;
+  if (window.location.hostname === 'localhost') {
+    return `http://localhost:${port}/api/v1/auth`;
   }
-  // Use the same hostname as the frontend (works for localhost and LAN access)
-  return `http://${window.location.hostname}:${port}/api/v1/auth`;
+  return `${process.env.REACT_APP_BACKEND_URL}/api/v1/auth`;
 };
 
 const BASE_URL = getBaseUrl();
@@ -46,23 +44,7 @@ const authService = {
     }
   },
 
-  logout: async () => {
-    const token = localStorage.getItem('token');
-    
-    // Call backend logout endpoint to disconnect TCP
-    if (token) {
-      try {
-        await axios.post(`${BASE_URL}/logout`, {}, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log('✅ Logout successful - TCP connection closed');
-      } catch (error) {
-        console.error('Error during logout:', error);
-        // Continue with local logout even if backend call fails
-      }
-    }
-    
-    // Clear local storage
+  logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
   },

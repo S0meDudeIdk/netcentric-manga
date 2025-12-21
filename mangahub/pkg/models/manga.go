@@ -68,27 +68,17 @@ func (m *Manga) GetGenres() error {
 	return json.Unmarshal([]byte(m.GenresJSON), &m.Genres)
 }
 
-// UserProgress represents a user's reading progress for a manga (tracks ANY manga read, not just library items)
+// UserProgress represents a user's reading progress for a manga
 type UserProgress struct {
 	UserID         string    `json:"user_id" db:"user_id"`
 	MangaID        string    `json:"manga_id" db:"manga_id"`
 	CurrentChapter int       `json:"current_chapter" db:"current_chapter"`
-	LastReadAt     time.Time `json:"last_read_at" db:"last_read_at"`
-	// For API responses that combine progress with library status
-	Status string `json:"status,omitempty" db:"-"` // Populated from library table when needed
+	Status         string    `json:"status" db:"status"` // reading, completed, plan_to_read, dropped
+	LastUpdated    time.Time `json:"last_updated" db:"last_updated"`
 	// Manga details (populated from local DB or external API)
 	Title    string `json:"title,omitempty"`
 	Author   string `json:"author,omitempty"`
 	CoverURL string `json:"cover_url,omitempty"`
-}
-
-// Library represents a manga in user's library
-type Library struct {
-	UserID      string    `json:"user_id" db:"user_id"`
-	MangaID     string    `json:"manga_id" db:"manga_id"`
-	Status      string    `json:"status" db:"status"` // reading, completed, plan_to_read, dropped, on_hold, re_reading
-	AddedAt     time.Time `json:"added_at" db:"added_at"`
-	LastUpdated time.Time `json:"last_updated" db:"last_updated"`
 }
 
 // UserLibrary represents a user's manga library organized by status
@@ -112,10 +102,11 @@ type MangaSearchRequest struct {
 	Offset int      `json:"offset" form:"offset"`
 }
 
-// UpdateProgressRequest represents a request to update reading progress (no status - just tracks reading)
+// UpdateProgressRequest represents a request to update reading progress
 type UpdateProgressRequest struct {
 	MangaID        string `json:"manga_id" binding:"required"`
 	CurrentChapter int    `json:"current_chapter" binding:"min=0"`
+	Status         string `json:"status" binding:"required,oneof=reading completed plan_to_read dropped on_hold re_reading"`
 }
 
 // AddToLibraryRequest represents a request to add manga to user's library

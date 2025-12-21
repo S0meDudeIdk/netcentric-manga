@@ -241,9 +241,9 @@ func (s *SyncService) SyncFromMangaDex(maxManga int) (*SyncResult, error) {
 	unlimited := maxManga == 0
 
 	for unlimited || totalSynced < maxManga {
-		// Rate limiting - wait between batch requests (MangaDex allows ~5 req/sec)
+		// Rate limiting - wait between requests
 		if offset > 0 {
-			time.Sleep(1 * time.Second) // Wait 1 second between batches
+			time.Sleep(300 * time.Millisecond) // Slightly longer delay to avoid rate limits
 		}
 
 		log.Printf("Fetching manga batch: offset=%d, limit=%d", offset, limit)
@@ -300,9 +300,6 @@ func (s *SyncService) SyncFromMangaDex(maxManga int) (*SyncResult, error) {
 				continue
 			}
 
-			// Rate limit: wait before making chapter API call (MangaDex: ~5 req/sec)
-			time.Sleep(250 * time.Millisecond)
-
 			// Get chapters for this manga
 			chapters, err := s.mangaDexClient.GetMangaChapterFeed(mdManga.ID, 500, 0, []string{"en"})
 			if err != nil {
@@ -319,8 +316,8 @@ func (s *SyncService) SyncFromMangaDex(maxManga int) (*SyncResult, error) {
 
 			log.Printf("    Found %d chapters", len(chapters.Data))
 
-			// Convert to local manga model with chapter count
-			manga := s.convertMangaDexToMangaWithChapters(mdManga, len(chapters.Data))
+			// Convert to local manga model
+			manga := s.convertMangaDexToManga(mdManga)
 
 			// Store manga only if it doesn't exist
 			if !mangaExists {
@@ -331,12 +328,7 @@ func (s *SyncService) SyncFromMangaDex(maxManga int) (*SyncResult, error) {
 				}
 				log.Printf("    Manga stored successfully")
 			} else {
-				log.Printf("    Manga already exists, updating chapters and total_chapters")
-				// Update total_chapters for existing manga
-				_, err := s.db.Exec(`UPDATE manga SET total_chapters = ? WHERE id = ?`, len(chapters.Data), manga.ID)
-				if err != nil {
-					log.Printf("    WARNING: Failed to update total_chapters: %v", err)
-				}
+				log.Printf("    Manga already exists, updating chapters only")
 			}
 
 			// Store chapters (whether manga is new or existing)
@@ -419,11 +411,6 @@ func (s *SyncService) getMangaDexTitle(manga external.MangaDexManga) string {
 
 // convertMangaDexToManga converts MangaDex manga to local model
 func (s *SyncService) convertMangaDexToManga(mdManga external.MangaDexManga) *models.Manga {
-	return s.convertMangaDexToMangaWithChapters(mdManga, 0)
-}
-
-// convertMangaDexToMangaWithChapters converts MangaDex manga to local model with chapter count
-func (s *SyncService) convertMangaDexToMangaWithChapters(mdManga external.MangaDexManga, chapterCount int) *models.Manga {
 	mangaID := "md-" + mdManga.ID
 	title := s.getMangaDexTitle(mdManga)
 
@@ -480,7 +467,7 @@ func (s *SyncService) convertMangaDexToMangaWithChapters(mdManga external.MangaD
 		Author:          author,
 		Genres:          genres,
 		Status:          strings.ToLower(mdManga.Attributes.Status),
-		TotalChapters:   chapterCount, // Set from actual readable chapters found
+		TotalChapters:   0, // Will be updated from database count
 		Description:     description,
 		CoverURL:        coverURL,
 		PublicationYear: publicationYear,
@@ -689,9 +676,6 @@ func (s *SyncService) storeManga(manga *models.Manga, malID, mangaDexID, source 
 
 	rowsAffected, _ := result.RowsAffected()
 	log.Printf("    Manga inserted successfully, rows affected: %d", rowsAffected)
-
-	// Note: ChatHub notification for new manga would go here, but sync_service doesn't have access to ChatHub
-	// This should be handled by the API layer when sync is called
 
 	// Store source mappings
 	if malID != "" {

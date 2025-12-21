@@ -40,7 +40,7 @@ func main() {
 	// Get TCP server address from environment
 	tcpAddress := os.Getenv("TCP_SERVER_ADDR")
 	if tcpAddress == "" {
-		tcpAddress = "127.0.0.1:9001"
+		tcpAddress = "localhost:9000"
 	}
 
 	// Create services

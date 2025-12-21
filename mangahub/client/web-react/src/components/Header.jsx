@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Book, Search, Library, Home, LogIn, UserPlus, User, LogOut, Menu, X, MessageCircle } from 'lucide-react';
 import authService from '../services/authService';
-import NotificationBell from './NotificationBell';
 
 const Header = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -30,19 +29,11 @@ const Header = () => {
     setShowMobileMenu(false);
   }, [location]);
 
-  const handleLogout = async () => {
-    try {
-      await authService.logout();
-      setIsAuthenticated(false);
-      setUser(null);
-      navigate('/login');
-    } catch (error) {
-      console.error('Logout error:', error);
-      // Still logout locally even if backend call fails
-      setIsAuthenticated(false);
-      setUser(null);
-      navigate('/login');
-    }
+  const handleLogout = () => {
+    authService.logout();
+    setIsAuthenticated(false);
+    setUser(null);
+    navigate('/login');
   };
 
   const NavLink = ({ to, icon: Icon, label }) => {
@@ -105,13 +96,9 @@ const Header = () => {
           </div>
 
           {/* Auth Buttons / User Menu */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-4">
             {isAuthenticated ? (
-              <>
-                {/* Notification Bell */}
-                <NotificationBell />
-                
-                <div className="relative">
+              <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
                   className="flex items-center gap-2 pl-2 pr-4 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 hover:border-primary/50 dark:hover:border-primary/50 transition-colors bg-zinc-50 dark:bg-zinc-800/50"
@@ -157,7 +144,6 @@ const Header = () => {
                   </div>
                 )}
               </div>
-              </>
             ) : (
               <div className="flex items-center gap-3">
                 <Link

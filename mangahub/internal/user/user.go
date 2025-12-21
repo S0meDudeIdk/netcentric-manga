@@ -151,15 +151,14 @@ func (s *Service) GetProfile(userID string) (*models.UserResponse, error) {
 
 // GetLibrary returns user's manga library organized by status
 func (s *Service) GetLibrary(userID string) (*models.UserLibrary, error) {
-	// Join library table with user_progress and manga
+	// Use LEFT JOIN to include external manga that aren't in local manga table
 	rows, err := s.db.Query(`
-		SELECT l.manga_id, COALESCE(up.current_chapter, 0), l.status, l.last_updated,
+		SELECT up.manga_id, up.current_chapter, up.status, up.last_updated,
 			   m.title, m.author, m.cover_url
-		FROM library l
-		LEFT JOIN user_progress up ON l.user_id = up.user_id AND l.manga_id = up.manga_id
-		LEFT JOIN manga m ON l.manga_id = m.id
-		WHERE l.user_id = ?
-		ORDER BY l.last_updated DESC`, userID)
+		FROM user_progress up
+		LEFT JOIN manga m ON up.manga_id = m.id
+		WHERE up.user_id = ?
+		ORDER BY up.last_updated DESC`, userID)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user library: %w", err)
@@ -178,11 +177,9 @@ func (s *Service) GetLibrary(userID string) (*models.UserLibrary, error) {
 	for rows.Next() {
 		var progress models.UserProgress
 		var title, author, coverURL sql.NullString
-		var lastUpdated time.Time
 
 		err := rows.Scan(&progress.MangaID, &progress.CurrentChapter, &progress.Status,
-			&lastUpdated, &title, &author, &coverURL)
-		progress.LastReadAt = lastUpdated
+			&progress.LastUpdated, &title, &author, &coverURL)
 		if err != nil {
 			log.Printf("Error scanning progress row: %v", err)
 			continue
@@ -266,14 +263,14 @@ func (s *Service) AddToLibrary(userID string, req models.AddToLibraryRequest) er
 		}
 	}
 
-	// Insert or update library entry
+	// Insert or update user progress
 	_, err := s.db.Exec(`
-		INSERT INTO library (user_id, manga_id, status, added_at, last_updated)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO user_progress (user_id, manga_id, status, last_updated)
+		VALUES (?, ?, ?, ?)
 		ON CONFLICT(user_id, manga_id) DO UPDATE SET
 			status = excluded.status,
 			last_updated = excluded.last_updated`,
-		userID, req.MangaID, req.Status, time.Now(), time.Now())
+		userID, req.MangaID, req.Status, time.Now())
 
 	if err != nil {
 		return fmt.Errorf("failed to add manga to library: %w", err)
@@ -283,17 +280,35 @@ func (s *Service) AddToLibrary(userID string, req models.AddToLibraryRequest) er
 }
 
 // UpdateProgress updates user's reading progress for a manga
-// Works for ANY manga (not just library items), allowing TCP progress tracking for all reads
-// Does NOT automatically add to library - that must be done explicitly via AddToLibrary
+// If the manga is not in the user's library, it will be added automatically
 func (s *Service) UpdateProgress(userID string, req models.UpdateProgressRequest) error {
-	// Update or insert reading progress (works for ANY manga, not just library)
-	_, err := s.db.Exec(`
-		INSERT INTO user_progress (user_id, manga_id, current_chapter, last_read_at)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(user_id, manga_id) DO UPDATE SET
-			current_chapter = excluded.current_chapter,
-			last_read_at = excluded.last_read_at`,
-		userID, req.MangaID, req.CurrentChapter, time.Now())
+	// Check if user has this manga in their library
+	var exists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM user_progress WHERE user_id = ? AND manga_id = ?)`,
+		userID, req.MangaID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check progress existence: %w", err)
+	}
+
+	if !exists {
+		// Auto-add manga to library with the provided status
+		_, err = s.db.Exec(`
+			INSERT INTO user_progress (user_id, manga_id, current_chapter, status, added_at, last_updated)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			userID, req.MangaID, req.CurrentChapter, req.Status, time.Now(), time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to add manga to library: %w", err)
+		}
+		return nil
+	}
+
+	// Update progress
+	_, err = s.db.Exec(`
+		UPDATE user_progress 
+		SET current_chapter = ?, status = ?, last_updated = ?
+		WHERE user_id = ? AND manga_id = ?`,
+		req.CurrentChapter, req.Status, time.Now(), userID, req.MangaID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update progress: %w", err)
@@ -338,13 +353,12 @@ func (s *Service) SearchUsers(query string, limit int) ([]models.UserResponse, e
 func (s *Service) GetLibraryStats(userID string) (*models.LibraryStatsResponse, error) {
 	var stats models.LibraryStatsResponse
 
-	// Get counts by status from library table, join with progress for chapter counts
+	// Get counts by status
 	rows, err := s.db.Query(`
-		SELECT l.status, COUNT(*), COALESCE(SUM(up.current_chapter), 0)
-		FROM library l
-		LEFT JOIN user_progress up ON l.user_id = up.user_id AND l.manga_id = up.manga_id
-		WHERE l.user_id = ? 
-		GROUP BY l.status`, userID)
+		SELECT status, COUNT(*), COALESCE(SUM(current_chapter), 0)
+		FROM user_progress 
+		WHERE user_id = ? 
+		GROUP BY status`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get library stats: %w", err)
 	}
@@ -385,17 +399,16 @@ func (s *Service) GetFilteredLibrary(userID string, status string, sortBy string
 	}
 
 	query := `
-		SELECT l.manga_id, COALESCE(up.current_chapter, 0), l.status, l.last_updated,
+		SELECT up.manga_id, up.current_chapter, up.status, up.last_updated,
 			   m.title, m.author, m.cover_url, m.total_chapters
-		FROM library l
-		LEFT JOIN user_progress up ON l.user_id = up.user_id AND l.manga_id = up.manga_id
-		JOIN manga m ON l.manga_id = m.id
-		WHERE l.user_id = ?`
+		FROM user_progress up
+		JOIN manga m ON up.manga_id = m.id
+		WHERE up.user_id = ?`
 	args := []interface{}{userID}
 
 	// Add status filter if specified
 	if status != "" {
-		query += ` AND l.status = ?`
+		query += ` AND up.status = ?`
 		args = append(args, status)
 	}
 
@@ -427,17 +440,15 @@ func (s *Service) GetFilteredLibrary(userID string, status string, sortBy string
 		var progress models.UserProgress
 		var title, author, coverURL string
 		var totalChapters int
-		var lastUpdated time.Time
 
 		err := rows.Scan(&progress.MangaID, &progress.CurrentChapter, &progress.Status,
-			&lastUpdated, &title, &author, &coverURL, &totalChapters)
+			&progress.LastUpdated, &title, &author, &coverURL, &totalChapters)
 		if err != nil {
 			log.Printf("Error scanning progress row: %v", err)
 			continue
 		}
 
 		progress.UserID = userID
-		progress.LastReadAt = lastUpdated
 		progressList = append(progressList, progress)
 	}
 
@@ -452,34 +463,31 @@ func (s *Service) BatchUpdateProgress(userID string, updates []models.UpdateProg
 	}
 	defer tx.Rollback()
 
-	// Prepare statement for progress updates
-	progressStmt, err := tx.Prepare(`
-		INSERT INTO user_progress (user_id, manga_id, current_chapter, last_read_at)
-		VALUES (?, ?, ?, ?)
+	stmt, err := tx.Prepare(`
+		INSERT INTO user_progress (user_id, manga_id, current_chapter, status, last_updated)
+		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, manga_id) DO UPDATE SET
 			current_chapter = excluded.current_chapter,
-			last_read_at = excluded.last_read_at`)
+			status = excluded.status,
+			last_updated = excluded.last_updated`)
 	if err != nil {
-		return fmt.Errorf("failed to prepare progress statement: %w", err)
+		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer progressStmt.Close()
+	defer stmt.Close()
 
 	for _, update := range updates {
-		// Check if manga exists (skip external manga like mal- or mangadex-)
-		isExternalManga := strings.HasPrefix(update.MangaID, "mal-") || strings.HasPrefix(update.MangaID, "mangadex-")
-		if !isExternalManga {
-			var exists bool
-			err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)", update.MangaID).Scan(&exists)
-			if err != nil {
-				return fmt.Errorf("failed to check manga existence: %w", err)
-			}
-			if !exists {
-				return fmt.Errorf("manga with ID '%s' not found", update.MangaID)
-			}
+		// Check if manga exists
+		var exists bool
+		err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM manga WHERE id = ?)", update.MangaID).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check manga existence: %w", err)
+		}
+		if !exists {
+			return fmt.Errorf("manga with ID '%s' not found", update.MangaID)
 		}
 
-		// Update progress (works for any manga)
-		_, err = progressStmt.Exec(userID, update.MangaID, update.CurrentChapter, time.Now())
+		// Execute update
+		_, err = stmt.Exec(userID, update.MangaID, update.CurrentChapter, update.Status, time.Now())
 		if err != nil {
 			return fmt.Errorf("failed to update progress for manga %s: %w", update.MangaID, err)
 		}
@@ -492,9 +500,9 @@ func (s *Service) BatchUpdateProgress(userID string, updates []models.UpdateProg
 	return nil
 }
 
-// RemoveFromLibrary removes manga from user's library (but keeps reading progress history)
+// RemoveFromLibrary removes manga from user's library
 func (s *Service) RemoveFromLibrary(userID, mangaID string) error {
-	result, err := s.db.Exec("DELETE FROM library WHERE user_id = ? AND manga_id = ?", userID, mangaID)
+	result, err := s.db.Exec("DELETE FROM user_progress WHERE user_id = ? AND manga_id = ?", userID, mangaID)
 	if err != nil {
 		return fmt.Errorf("failed to remove manga from library: %w", err)
 	}
@@ -523,13 +531,13 @@ func (s *Service) GetReadingRecommendations(userID string, limit int) ([]models.
 			   m.total_chapters, m.description, m.cover_url, m.created_at
 		FROM manga m
 		WHERE m.id NOT IN (
-			SELECT manga_id FROM library WHERE user_id = ?
+			SELECT manga_id FROM user_progress WHERE user_id = ?
 		)
 		AND EXISTS (
-			SELECT 1 FROM library l
-			JOIN manga um ON l.manga_id = um.id 
-			WHERE l.user_id = ? 
-			AND l.status IN ('reading', 'completed')
+			SELECT 1 FROM user_progress up 
+			JOIN manga um ON up.manga_id = um.id 
+			WHERE up.user_id = ? 
+			AND up.status IN ('reading', 'completed')
 			AND (
 				m.genres LIKE '%' || JSON_EXTRACT(um.genres, '$[0]') || '%' OR
 				m.genres LIKE '%' || JSON_EXTRACT(um.genres, '$[1]') || '%'
@@ -569,12 +577,10 @@ func (s *Service) GetReadingRecommendations(userID string, limit int) ([]models.
 
 // GetUserProgress retrieves user's reading progress for a specific manga (for TCP endpoint)
 func (s *Service) GetUserProgress(userID, mangaID string) (*models.UserProgress, error) {
-	// Join user_progress with library to get both progress and status
 	query := `
-		SELECT up.user_id, up.manga_id, up.current_chapter, up.last_read_at, COALESCE(l.status, '')
-		FROM user_progress up
-		LEFT JOIN library l ON up.user_id = l.user_id AND up.manga_id = l.manga_id
-		WHERE up.user_id = ? AND up.manga_id = ?
+		SELECT user_id, manga_id, current_chapter, status, last_updated
+		FROM user_progress
+		WHERE user_id = ? AND manga_id = ?
 	`
 
 	var progress models.UserProgress
@@ -582,8 +588,8 @@ func (s *Service) GetUserProgress(userID, mangaID string) (*models.UserProgress,
 		&progress.UserID,
 		&progress.MangaID,
 		&progress.CurrentChapter,
-		&progress.LastReadAt,
 		&progress.Status,
+		&progress.LastUpdated,
 	)
 
 	if err == sql.ErrNoRows {

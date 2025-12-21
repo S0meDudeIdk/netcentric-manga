@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
 	"mangahub/internal/external"
 	"mangahub/internal/manga"
-	"mangahub/internal/udp"
 	"mangahub/pkg/database"
 	"mangahub/pkg/models"
 	"net/http"
@@ -29,8 +26,6 @@ type FetchMangaServer struct {
 	MALClient     *external.MALClient
 	JikanClient   *external.JikanClient
 	Port          string
-	udpServerURL  string
-	httpClient    *http.Client
 }
 
 // NewFetchMangaServer creates a new fetch manga server instance
@@ -57,20 +52,13 @@ func NewFetchMangaServer() *FetchMangaServer {
 		MALClient:     external.NewMALClient(),
 		JikanClient:   jikanClient,
 		Port:          getPort(),
-		httpClient:    &http.Client{Timeout: 5 * time.Second},
 	}
-
-	// Initialize UDP notification support
-	server.initializeUDP()
 
 	// Setup routes
 	server.setupRoutes()
 
 	// Auto-sync manga from MAL on startup (in background)
 	go server.autoSyncManga()
-
-	// Start periodic sync every 15 minutes
-	go server.startPeriodicSync()
 
 	return server
 }
@@ -415,14 +403,6 @@ func (s *FetchMangaServer) syncMangaFromMAL(c *gin.Context) {
 		return
 	}
 
-	// Trigger UDP notification if manga were synced
-	if result.Synced > 0 {
-		go s.triggerUDPNotification(
-			"new_comics",
-			fmt.Sprintf("🆕 %d new comics synced from MyAnimeList", result.Synced),
-		)
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"success":       true,
 		"total_fetched": result.TotalFetched,
@@ -446,14 +426,6 @@ func (s *FetchMangaServer) syncMangaChapters(c *gin.Context) {
 			"error": "Failed to sync chapters",
 		})
 		return
-	}
-
-	// Trigger UDP notification if chapters were synced
-	if result.Synced > 0 {
-		go s.triggerUDPNotification(
-			"new_chapters",
-			fmt.Sprintf("📖 New chapters available! %d manga updated with fresh chapters", result.Synced),
-		)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -657,67 +629,6 @@ func (s *FetchMangaServer) enrichMangaWithRatings(mangaList []*models.Manga, use
 	}
 }
 
-// initializeUDP configures UDP notification support
-func (s *FetchMangaServer) initializeUDP() {
-	udpServerHost := os.Getenv("UDP_SERVER_HTTP_ADDR")
-	if udpServerHost == "" {
-		udpServerHost = "http://udp-server:9020" // Default to Docker service name
-		log.Printf("⚠️  UDP_SERVER_HTTP_ADDR not set, using default: %s", udpServerHost)
-	}
-	s.udpServerURL = udpServerHost
-	log.Printf("✅ UDP Server HTTP API configured at %s", s.udpServerURL)
-	log.Printf("   HTTP Client timeout: %v", s.httpClient.Timeout)
-}
-
-// triggerUDPNotification sends a notification to the UDP server
-func (s *FetchMangaServer) triggerUDPNotification(notifType, message string) {
-	log.Printf("🔔 Attempting to send UDP notification: type=%s, message=%s", notifType, message)
-
-	if s.udpServerURL == "" {
-		log.Printf("❌ Cannot send UDP notification: udpServerURL is empty")
-		return
-	}
-
-	if s.httpClient == nil {
-		log.Printf("❌ Cannot send UDP notification: httpClient is nil")
-		return
-	}
-
-	notification := udp.Notification{
-		Type:      notifType,
-		Message:   message,
-		Timestamp: time.Now().Unix(),
-	}
-
-	data, err := json.Marshal(notification)
-	if err != nil {
-		log.Printf("❌ Failed to marshal UDP notification: %v", err)
-		return
-	}
-
-	targetURL := s.udpServerURL + "/trigger"
-	log.Printf("📡 Sending POST request to %s", targetURL)
-
-	resp, err := s.httpClient.Post(
-		targetURL,
-		"application/json",
-		bytes.NewReader(data),
-	)
-	if err != nil {
-		log.Printf("❌ Failed to trigger UDP notification: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	log.Printf("📥 UDP server response: status=%d", resp.StatusCode)
-
-	if resp.StatusCode == http.StatusOK {
-		log.Printf("✅ UDP notification sent successfully: %s - %s", notifType, message)
-	} else {
-		log.Printf("⚠️  UDP notification sent but got non-OK status: %d", resp.StatusCode)
-	}
-}
-
 // autoSyncManga runs on server startup to populate database with manga
 func (s *FetchMangaServer) autoSyncManga() {
 	log.Println("=================================================")
@@ -743,8 +654,8 @@ func (s *FetchMangaServer) autoSyncManga() {
 	log.Println("This will fetch manga with readable chapters from MangaDex")
 	log.Println("Note: Existing manga will be skipped automatically.")
 
-	// Sync directly from MangaDex (small limit to respect API rate limits)
-	result, err := s.SyncService.SyncFromMangaDex(500)
+	// Sync directly from MangaDex (1000 limit to avoid overwhelming the system)
+	result, err := s.SyncService.SyncFromMangaDex(1000)
 	if err != nil {
 		log.Printf("ERROR: Auto-sync failed: %v", err)
 		return
@@ -757,77 +668,6 @@ func (s *FetchMangaServer) autoSyncManga() {
 	log.Printf("  Skipped: %d (includes already existing)", result.Skipped)
 	log.Printf("  Failed: %d", result.Failed)
 	log.Println("=================================================")
-
-	// Send UDP notification about sync completion
-	if result.Synced > 0 {
-		log.Printf("🔔 Triggering UDP notification: %d new manga synced", result.Synced)
-		s.triggerUDPNotification(
-			"new_comics",
-			fmt.Sprintf("🆕 %d new comics added to the library! Browse now to discover fresh content.", result.Synced),
-		)
-	} else {
-		log.Printf("ℹ️  No new manga to sync (all %d already exist)", result.Skipped)
-		s.triggerUDPNotification(
-			"sync_complete",
-			fmt.Sprintf("✅ Database check complete: All %d comics are up to date", result.TotalFetched),
-		)
-	}
-}
-
-// startPeriodicSync runs manga sync every 15 minutes
-func (s *FetchMangaServer) startPeriodicSync() {
-	ticker := time.NewTicker(15 * time.Minute)
-	defer ticker.Stop()
-
-	log.Println("⏰ Periodic sync enabled: Will sync every 15 minutes")
-
-	for range ticker.C {
-		log.Println("")
-		log.Println("=================================================")
-		log.Println("⏰ Starting periodic manga sync (15-minute interval)")
-		log.Println("=================================================")
-
-		// Check current manga count
-		var count int
-		db := database.GetDB()
-		err := db.QueryRow("SELECT COUNT(*) FROM manga").Scan(&count)
-		if err != nil {
-			log.Printf("ERROR: Failed to check manga count: %v", err)
-			continue
-		}
-
-		log.Printf("Current manga in database: %d", count)
-
-		// Sync from MangaDex (small limit to respect API rate limits)
-		// MangaDex allows ~5 requests/sec, so 20 manga = ~21 requests (1 batch + 20 chapter fetches)
-		result, err := s.SyncService.SyncFromMangaDex(20)
-		if err != nil {
-			log.Printf("ERROR: Periodic sync failed: %v", err)
-			continue
-		}
-
-		log.Println("=================================================")
-		log.Printf("⏰ Periodic sync completed!")
-		log.Printf("  Total fetched: %d", result.TotalFetched)
-		log.Printf("  Synced: %d", result.Synced)
-		log.Printf("  Skipped: %d (already existing)", result.Skipped)
-		log.Printf("  Failed: %d", result.Failed)
-		log.Println("=================================================")
-
-		// Send UDP notification about sync results
-		if result.Synced > 0 {
-			log.Printf("🔔 Triggering UDP notification: %d new manga synced", result.Synced)
-			s.triggerUDPNotification(
-				"new_comics",
-				fmt.Sprintf("🆕 %d new comics added to the library! Browse now to discover fresh content.", result.Synced),
-			)
-		} else {
-			log.Printf("ℹ️  No new manga to sync (all %d already exist)", result.Skipped)
-			// Don't send notification if nothing new - reduces noise
-		}
-
-		log.Printf("⏰ Next sync will run in 15 minutes")
-	}
 }
 
 // Start starts the HTTP server
@@ -837,24 +677,9 @@ func (s *FetchMangaServer) Start() error {
 }
 
 func main() {
-	// Load .env file - try multiple locations
-	envLocations := []string{
-		".env",       // Current directory
-		"../.env",    // Parent directory
-		"../../.env", // Grandparent directory (for cmd/fetch-manga-server)
-	}
-
-	envLoaded := false
-	for _, envPath := range envLocations {
-		if err := godotenv.Load(envPath); err == nil {
-			log.Printf("✅ Loaded environment from %s", envPath)
-			envLoaded = true
-			break
-		}
-	}
-
-	if !envLoaded {
-		log.Println("⚠️  No .env file found, using system environment variables")
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using environment variables")
 	}
 
 	// Initialize database

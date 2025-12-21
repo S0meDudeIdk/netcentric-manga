@@ -49,7 +49,7 @@ func (s *APIServer) connectToGRPCServer() {
 func (s *APIServer) initializeTCP() {
 	// Configure TCP server URL
 	tcpServerHost := os.Getenv("TCP_SERVER_ADDR")
-	if tcpServerHost == "TCP_SERVER_HTTP_ADDR" {
+	if tcpServerHost == "" {
 		tcpServerHost = "http://localhost:9010" // Default TCP server HTTP trigger API
 	}
 	s.tcpServerURL = tcpServerHost
@@ -116,26 +116,20 @@ func (s *APIServer) triggerTCPBroadcast(userID, userName, mangaID string, chapte
 
 func (s *APIServer) initializeUDP() {
 	// Initialize HTTP client for UDP server communication
-	udpServerHost := os.Getenv("UDP_SERVER_HTTP_ADDR")
+	udpServerHost := os.Getenv("UDP_SERVER_ADDR")
 	if udpServerHost == "" {
-		udpServerHost = "http://udp-server:9020" // Default to Docker service name
+		udpServerHost = "http://localhost:9020" // Default UDP server HTTP trigger API
 	}
 	s.udpServerURL = udpServerHost
+	log.Printf("UDP PORT", s.udpServerURL)
 	log.Printf("UDP Server HTTP API configured at %s", s.udpServerURL)
 }
 
 // triggerUDPNotification sends a notification to the standalone UDP server via HTTP
-// Overloaded to accept individual parameters for convenience
-func (s *APIServer) triggerUDPNotification(userID, notifType, message string) {
+func (s *APIServer) triggerUDPNotification(notification udp.Notification) {
 	if s.udpServerURL == "" || s.httpClient == nil {
 		log.Println("UDP server not configured")
 		return
-	}
-
-	notification := udp.Notification{
-		Type:      notifType,
-		Message:   message,
-		Timestamp: time.Now().Unix(),
 	}
 
 	// Marshal notification to JSON
@@ -163,41 +157,4 @@ func (s *APIServer) triggerUDPNotification(userID, notifType, message string) {
 	}
 
 	log.Printf("Successfully triggered UDP notification: %s - %s", notification.Type, notification.Message)
-}
-
-// initializeTCPUserManager creates the TCP user connection manager
-func (s *APIServer) initializeTCPUserManager() {
-	tcpAddr := os.Getenv("TCP_SERVER_ADDR")
-	if tcpAddr == "" {
-		tcpAddr = "127.0.0.1:9001" // Default TCP progress sync server (use IPv4)
-	}
-
-	s.TCPUserManager = NewTCPUserManager(tcpAddr, s.SSEHub)
-	log.Printf("✅ TCP User Manager initialized - Server: %s", tcpAddr)
-	log.Println("Users will connect to TCP server on login and disconnect on logout")
-}
-
-// initializeUDPClient connects to UDP server to receive notifications
-func (s *APIServer) initializeUDPClient() {
-	udpAddr := os.Getenv("UDP_SERVER_ADDR")
-	if udpAddr == "" {
-		udpAddr = "udp-server:9002" // Default to Docker service name
-	}
-
-	var err error
-	s.UDPClient, err = NewUDPClient(udpAddr, s.SSEHub)
-	if err != nil {
-		log.Printf("Warning: Failed to create UDP client: %v", err)
-		log.Println("UDP notifications will be unavailable")
-		return
-	}
-
-	err = s.UDPClient.Start()
-	if err != nil {
-		log.Printf("Warning: Failed to start UDP client: %v", err)
-		log.Println("UDP notifications will be unavailable")
-		return
-	}
-
-	log.Println("✅ Connected to UDP Notification Server - Push notifications enabled")
 }

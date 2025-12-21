@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Book, ChevronDown, ChevronUp } from 'lucide-react';
+import { Book } from 'lucide-react';
 import mangaService from '../services/mangaService';
 import MangaCard from '../components/MangaCard';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -10,14 +10,15 @@ const Browse = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [manga, setManga] = useState([]);
   const [selectedGenres, setSelectedGenres] = useState([]);
-  const [selectedStatus, setSelectedStatus] = useState(''); 
+  const [selectedStatus, setSelectedStatus] = useState('');
   const [sortBy, setSortBy] = useState('popular');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const [genresExpanded, setGenresExpanded] = useState(false);
+  const [pagination, setPagination] = useState(null);
   const itemsPerPage = 25;
 
   useEffect(() => {
@@ -34,13 +35,14 @@ const Browse = () => {
     
     if (searchParam) {
       // If there's a search parameter, always do search
+      setSearchQuery(searchParam);
       handleSearch(searchParam, pageParam, newSort);
     } else {
       // No search parameter, clear search and browse normally
+      setSearchQuery('');
       fetchData(pageParam, newSort);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams.toString()]); // Use toString() to avoid infinite loops
 
   const fetchData = async (page = 1, currentSort = 'title') => {
     try {
@@ -133,10 +135,10 @@ const Browse = () => {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Sidebar */}
           <div className="w-full lg:w-64 flex-shrink-0">
-            <div className="sticky top-24 bg-white dark:bg-[#191022] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 space-y-4">
+            <div className="sticky top-24 bg-white dark:bg-[#191022] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 space-y-6">
               {/* Sort By */}
               <div>
-                <label className="block text-sm font-bold text-zinc-900 dark:text-white mb-2">Sort By</label>
+                <label className="block text-sm font-bold text-zinc-900 dark:text-white mb-3">Sort By</label>
                 <div className="space-y-1">
                   {[
                     { value: 'title', label: 'Title (A-Z)' },
@@ -162,70 +164,45 @@ const Browse = () => {
                 </div>
               </div>
 
-              {/* Genres - Collapsible */}
+              {/* Genres */}
               <div>
-                <button
-                  onClick={() => setGenresExpanded(!genresExpanded)}
-                  className="w-full flex items-center justify-between text-sm font-bold text-zinc-900 dark:text-white mb-2"
-                >
-                  <span>
-                    Genres {selectedGenres.length > 0 && <span className="text-xs text-primary">({selectedGenres.length})</span>}
-                  </span>
-                  {genresExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
-                
-                {genresExpanded && (
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
-                    <button
-                      onClick={() => setSelectedGenres([])}
-                      className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                        selectedGenres.length === 0
-                          ? 'bg-primary/10 text-primary font-semibold'
-                          : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                      }`}
-                    >
-                      All Genres
-                    </button>
-                    {['Action', 'Adventure', 'Award Winning', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Mystery', 'Psychological', 'Romance', 'Sci-Fi', 'Slice of Life', 'Sports', 'Supernatural', 'Thriller'].map(genre => (
-                      <label key={genre} className="flex items-center gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800 px-3 py-1.5 rounded-lg transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={selectedGenres.includes(genre)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedGenres([...selectedGenres, genre]);
-                            } else {
-                              setSelectedGenres(selectedGenres.filter(g => g !== genre));
-                            }
-                          }}
-                          className="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-primary focus:ring-primary"
-                        />
-                        <span className="text-sm text-zinc-600 dark:text-zinc-400">{genre}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-                
-                {/* Selected Genres Display (when collapsed) */}
-                {!genresExpanded && selectedGenres.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {selectedGenres.slice(0, 3).map(genre => (
-                      <span key={genre} className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md">
-                        {genre}
-                      </span>
-                    ))}
-                    {selectedGenres.length > 3 && (
-                      <span className="px-2 py-1 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs rounded-md">
-                        +{selectedGenres.length - 3}
-                      </span>
-                    )}
-                  </div>
-                )}
+                <label className="block text-sm font-bold text-zinc-900 dark:text-white mb-3">
+                  Genres {selectedGenres.length > 0 && <span className="text-xs text-primary">({selectedGenres.length})</span>}
+                </label>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  <button
+                    onClick={() => setSelectedGenres([])}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                      selectedGenres.length === 0
+                        ? 'bg-primary/10 text-primary font-semibold'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    All Genres
+                  </button>
+                  {['Action', 'Adventure', 'Award Winning', 'Comedy', 'Drama', 'Fantasy', 'Horror', 'Mystery', 'Psychological', 'Romance', 'Sci-Fi', 'Slice of Life', 'Sports', 'Supernatural', 'Thriller'].map(genre => (
+                    <label key={genre} className="flex items-center gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800 px-3 py-2 rounded-lg transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={selectedGenres.includes(genre)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedGenres([...selectedGenres, genre]);
+                          } else {
+                            setSelectedGenres(selectedGenres.filter(g => g !== genre));
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-zinc-300 dark:border-zinc-600 text-primary focus:ring-primary"
+                      />
+                      <span className="text-sm text-zinc-600 dark:text-zinc-400">{genre}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
               {/* Status */}
               <div>
-                <label className="block text-sm font-bold text-zinc-900 dark:text-white mb-2">Status</label>
+                <label className="block text-sm font-bold text-zinc-900 dark:text-white mb-3">Status</label>
                 <div className="space-y-1">
                   {[
                     { value: '', label: 'All' },
@@ -298,8 +275,8 @@ const Browse = () => {
                   onClick={() => {
                     setSelectedGenres([]);
                     setSelectedStatus('');
-                    setSortBy('title');
-                    setSearchParams({});
+                    setSearchQuery('');
+                    setSortBy('popular');
                   }}
                   className="px-6 py-2.5 bg-primary text-white rounded-xl hover:bg-primary/90 transition shadow-lg shadow-primary/25"
                 >
