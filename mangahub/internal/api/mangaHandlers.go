@@ -168,12 +168,7 @@ func (s *APIServer) createManga(c *gin.Context) {
 	}
 
 	// Send UDP notification for new manga via HTTP trigger
-	go s.triggerUDPNotification(udp.Notification{
-		Type:      "manga_update",
-		MangaID:   createdManga.ID,
-		Message:   fmt.Sprintf("New manga added: %s by %s", createdManga.Title, createdManga.Author),
-		Timestamp: time.Now().Unix(),
-	})
+	go s.triggerUDPNotification("", "manga_update", fmt.Sprintf("New manga added: %s by %s", createdManga.Title, createdManga.Author))
 
 	// Also broadcast to WebSocket clients
 	s.ChatHub.BroadcastNotification(
@@ -238,7 +233,7 @@ func (s *APIServer) updateManga(c *gin.Context) {
 		wsMessage = fmt.Sprintf("🔄 Manga %s updated: %s", updatedManga.Title, updatedManga.Status)
 	}
 
-	go s.triggerUDPNotification(notification)
+	go s.triggerUDPNotification("", notification.Type, notification.Message)
 
 	// Also broadcast to WebSocket clients
 	s.ChatHub.BroadcastNotification(updatedManga.ID, notification.Type, wsMessage)
@@ -263,7 +258,6 @@ func (s *APIServer) deleteManga(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Manga deleted successfully"})
 }
-
 
 // getChapterList handles GET /api/v1/manga/:id/chapters
 func (s *APIServer) getChapterList(c *gin.Context) {
@@ -434,4 +428,3 @@ func (s *APIServer) getMangaRatings(c *gin.Context) {
 
 	c.JSON(http.StatusOK, stats)
 }
-

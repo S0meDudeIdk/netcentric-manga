@@ -36,23 +36,38 @@ func findProjectRoot() (string, error) {
 
 // InitDatabase initializes the SQLite database connection and creates tables
 func InitDatabase() error {
-	// Find project root (where go.mod is located)
-	projectRoot, err := findProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to find project root: %w", err)
-	}
+	var dbPath string
 
-	// Ensure data directory exists at project root
-	dataDir := filepath.Join(projectRoot, "data")
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return fmt.Errorf("failed to create data directory: %w", err)
-	}
+	// Check if DB_PATH environment variable is set (for Docker/containerized environments)
+	if envPath := os.Getenv("DB_PATH"); envPath != "" {
+		dbPath = envPath
+		log.Printf("Using database path from DB_PATH environment variable: %s", dbPath)
 
-	// Database file path - always at project root
-	dbPath := filepath.Join(dataDir, "mangahub.db")
-	log.Printf("Using database at: %s", dbPath)
+		// Ensure the directory exists
+		dbDir := filepath.Dir(dbPath)
+		if err := os.MkdirAll(dbDir, 0755); err != nil {
+			return fmt.Errorf("failed to create database directory: %w", err)
+		}
+	} else {
+		// Find project root (where go.mod is located) - for local development
+		projectRoot, err := findProjectRoot()
+		if err != nil {
+			return fmt.Errorf("failed to find project root: %w", err)
+		}
+
+		// Ensure data directory exists at project root
+		dataDir := filepath.Join(projectRoot, "data")
+		if err := os.MkdirAll(dataDir, 0755); err != nil {
+			return fmt.Errorf("failed to create data directory: %w", err)
+		}
+
+		// Database file path - always at project root
+		dbPath = filepath.Join(dataDir, "mangahub.db")
+		log.Printf("Using database at: %s", dbPath)
+	}
 
 	// Open database connection
+	var err error
 	DB, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
@@ -98,16 +113,26 @@ func createTables() error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 
-		// User progress table
-		`CREATE TABLE IF NOT EXISTS user_progress (
-			user_id TEXT,
-			manga_id TEXT,
-			current_chapter INTEGER DEFAULT 0,
-			status TEXT DEFAULT 'plan_to_read', -- reading, completed, plan_to_read, dropped
+		// Library table - tracks which manga are in user's library with status
+		`CREATE TABLE IF NOT EXISTS library (
+			user_id TEXT NOT NULL,
+			manga_id TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'plan_to_read', -- reading, completed, plan_to_read, dropped, on_hold, re_reading
+			added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (user_id, manga_id),
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (manga_id) REFERENCES manga(id) ON DELETE CASCADE
+		)`,
+
+		// User progress table - tracks reading progress for ANY manga (not just library items)
+		`CREATE TABLE IF NOT EXISTS user_progress (
+			user_id TEXT NOT NULL,
+			manga_id TEXT NOT NULL,
+			current_chapter INTEGER DEFAULT 0,
+			last_read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, manga_id),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		)`,
 
 		// Manga ratings table
@@ -156,6 +181,9 @@ func createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`,
 		`CREATE INDEX IF NOT EXISTS idx_manga_title ON manga(title)`,
 		`CREATE INDEX IF NOT EXISTS idx_manga_author ON manga(author)`,
+		`CREATE INDEX IF NOT EXISTS idx_library_user ON library(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_library_manga ON library(manga_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_library_status ON library(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_progress_user ON user_progress(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_progress_manga ON user_progress(manga_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_ratings_manga ON manga_ratings(manga_id)`,

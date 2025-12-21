@@ -23,6 +23,8 @@ func (s *APIServer) setupRoutes() {
 		{
 			auth.POST("/register", s.register)
 			auth.POST("/login", s.login)
+			// Logout requires authentication
+			auth.POST("/logout", authMiddleware(), s.logout)
 		}
 
 		// Public manga browsing routes (no auth required)
@@ -101,6 +103,13 @@ func (s *APIServer) setupRoutes() {
 
 			// WebSocket chat endpoint (protected - requires authentication)
 			protected.GET("/ws/chat", internalWebsocket.HandleWebSocketChat(s.ChatHub, s.upgrader))
+
+			// SSE endpoints for real-time updates (protected)
+			sseRoutes := protected.Group("/sse")
+			{
+				sseRoutes.GET("/progress", s.streamProgressUpdates)    // TCP progress sync via SSE
+				sseRoutes.GET("/notifications", s.streamNotifications) // UDP notifications via SSE
+			}
 
 			// gRPC-backed endpoints (protected)
 			grpcRoutes := protected.Group("/grpc")

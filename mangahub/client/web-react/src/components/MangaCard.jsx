@@ -1,9 +1,9 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Book, Star, Calendar } from 'lucide-react';
+import { Book, Star, Calendar, BookMarked } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const MangaCard = ({ manga, index = 0 }) => {
+const MangaCard = ({ manga, index = 0, showProgress = false, currentChapter = null }) => {
   const navigate = useNavigate();
 
   const handleClick = () => {
@@ -95,10 +95,22 @@ const MangaCard = ({ manga, index = 0 }) => {
 
         {/* Meta Info */}
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-            <Book className="w-3.5 h-3.5" />
-            <span>{manga.total_chapters || "?"} ch</span>
-          </div>
+          {showProgress && currentChapter !== null ? (
+            // Show current chapter for library
+            <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+              <BookMarked className="w-3.5 h-3.5 text-primary" />
+              <span className="font-medium">Ch. {currentChapter}</span>
+              {manga.total_chapters && (
+                <span className="text-zinc-400 dark:text-zinc-500">/ {manga.total_chapters}</span>
+              )}
+            </div>
+          ) : (
+            // Show total chapters for browse
+            <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+              <Book className="w-3.5 h-3.5" />
+              <span>{manga.total_chapters || "?"} ch</span>
+            </div>
+          )}
 
           {manga.publication_year && (
             <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
@@ -107,6 +119,18 @@ const MangaCard = ({ manga, index = 0 }) => {
             </div>
           )}
         </div>
+        
+        {/* Progress Bar for Library */}
+        {showProgress && currentChapter !== null && manga.total_chapters && (
+          <div className="mt-2">
+            <div className="w-full h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-primary to-primary/80 transition-all duration-300"
+                style={{ width: `${Math.min(100, (currentChapter / manga.total_chapters) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </motion.div>
   );

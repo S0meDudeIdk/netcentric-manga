@@ -39,7 +39,9 @@ class WebSocketService {
     };
     this.connections.set(roomId, connectionData);
 
-    const wsUrl = `${process.env.REACT_APP_WS_URL || 'ws://localhost:8080'}/api/v1/ws/chat?room=${roomId}&token=${token}`;
+    const wsUrl = process.env.REACT_APP_WS_URL 
+      ? `${process.env.REACT_APP_WS_URL}/api/v1/ws/chat?room=${roomId}&token=${token}`
+      : `ws://${window.location.hostname}:8080/api/v1/ws/chat?room=${roomId}&token=${token}`;
     const ws = new WebSocket(wsUrl);
     
     // Now set the real WebSocket
@@ -120,7 +122,9 @@ class WebSocketService {
     };
     this.connections.set(roomId, connectionData);
 
-    const wsUrl = `${process.env.REACT_APP_WS_URL || 'ws://localhost:8080'}/api/v1/ws/chat?room=${roomId}&token=${token}`;
+    const wsUrl = process.env.REACT_APP_WS_URL 
+      ? `${process.env.REACT_APP_WS_URL}/api/v1/ws/chat?room=${roomId}&token=${token}`
+      : `ws://${window.location.hostname}:8080/api/v1/ws/chat?room=${roomId}&token=${token}`;
     const ws = new WebSocket(wsUrl);
 
     // const connectionData = {

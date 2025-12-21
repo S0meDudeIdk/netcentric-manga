@@ -60,9 +60,9 @@ func (suite *APITestSuite) createTestUser() {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(reqBody))
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	suite.router.ServeHTTP(w, req)
-	
+
 	if w.Code == http.StatusCreated {
 		var response models.AuthResponse
 		json.Unmarshal(w.Body.Bytes(), &response)
@@ -74,14 +74,14 @@ func (suite *APITestSuite) createTestUser() {
 			Email:    "test@example.com",
 			Password: "testpassword123",
 		}
-		
+
 		reqBody, _ := json.Marshal(loginReq)
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(reqBody))
 		req.Header.Set("Content-Type", "application/json")
-		
+
 		suite.router.ServeHTTP(w, req)
-		
+
 		var response models.LoginResponse
 		json.Unmarshal(w.Body.Bytes(), &response)
 		suite.token = response.Token
@@ -103,7 +103,7 @@ func (suite *APITestSuite) makeAuthenticatedRequest(method, url string, body int
 	req, _ := http.NewRequest(method, url, reqBody)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+suite.token)
-	
+
 	suite.router.ServeHTTP(w, req)
 	return w
 }
@@ -115,7 +115,7 @@ func (suite *APITestSuite) TestHealthCheck() {
 	suite.router.ServeHTTP(w, req)
 
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -134,11 +134,11 @@ func (suite *APITestSuite) TestUserRegistration() {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(reqBody))
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	suite.router.ServeHTTP(w, req)
 
 	assert.Equal(suite.T(), http.StatusCreated, w.Code)
-	
+
 	var response models.AuthResponse
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -157,11 +157,11 @@ func (suite *APITestSuite) TestUserLogin() {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(reqBody))
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	suite.router.ServeHTTP(w, req)
 
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response models.LoginResponse
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -171,9 +171,9 @@ func (suite *APITestSuite) TestUserLogin() {
 // TestGetProfile tests getting user profile
 func (suite *APITestSuite) TestGetProfile() {
 	w := suite.makeAuthenticatedRequest("GET", "/api/v1/users/profile", nil)
-	
+
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response models.UserResponse
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -183,9 +183,9 @@ func (suite *APITestSuite) TestGetProfile() {
 // TestSearchManga tests manga search
 func (suite *APITestSuite) TestSearchManga() {
 	w := suite.makeAuthenticatedRequest("GET", "/api/v1/manga?query=One Piece", nil)
-	
+
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -196,9 +196,9 @@ func (suite *APITestSuite) TestSearchManga() {
 // TestGetManga tests getting specific manga
 func (suite *APITestSuite) TestGetManga() {
 	w := suite.makeAuthenticatedRequest("GET", "/api/v1/manga/one-piece", nil)
-	
+
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response models.Manga
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -214,9 +214,9 @@ func (suite *APITestSuite) TestAddToLibrary() {
 	}
 
 	w := suite.makeAuthenticatedRequest("POST", "/api/v1/users/library", addReq)
-	
+
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -236,13 +236,12 @@ func (suite *APITestSuite) TestUpdateProgress() {
 	updateReq := models.UpdateProgressRequest{
 		MangaID:        "naruto",
 		CurrentChapter: 50,
-		Status:         "reading",
 	}
 
 	w := suite.makeAuthenticatedRequest("PUT", "/api/v1/users/progress", updateReq)
-	
+
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -252,9 +251,9 @@ func (suite *APITestSuite) TestUpdateProgress() {
 // TestGetLibrary tests getting user library
 func (suite *APITestSuite) TestGetLibrary() {
 	w := suite.makeAuthenticatedRequest("GET", "/api/v1/users/library", nil)
-	
+
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response models.UserLibrary
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -264,9 +263,9 @@ func (suite *APITestSuite) TestGetLibrary() {
 // TestGetLibraryStats tests getting library statistics
 func (suite *APITestSuite) TestGetLibraryStats() {
 	w := suite.makeAuthenticatedRequest("GET", "/api/v1/users/library/stats", nil)
-	
+
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response models.LibraryStatsResponse
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -276,9 +275,9 @@ func (suite *APITestSuite) TestGetLibraryStats() {
 // TestGetGenres tests getting all genres
 func (suite *APITestSuite) TestGetGenres() {
 	w := suite.makeAuthenticatedRequest("GET", "/api/v1/manga/genres", nil)
-	
+
 	assert.Equal(suite.T(), http.StatusOK, w.Code)
-	
+
 	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(suite.T(), err)
@@ -298,7 +297,7 @@ func (suite *APITestSuite) TestUnauthorizedAccess() {
 // TestInvalidManga tests accessing non-existent manga
 func (suite *APITestSuite) TestInvalidManga() {
 	w := suite.makeAuthenticatedRequest("GET", "/api/v1/manga/non-existent", nil)
-	
+
 	assert.Equal(suite.T(), http.StatusNotFound, w.Code)
 }
 
@@ -315,9 +314,9 @@ func (suite *APITestSuite) TestInvalidJSON() {
 	req, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer([]byte("invalid json")))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+suite.token)
-	
+
 	suite.router.ServeHTTP(w, req)
-	
+
 	assert.Equal(suite.T(), http.StatusBadRequest, w.Code)
 }
 

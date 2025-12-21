@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"log"
 	"mangahub/pkg/models"
 	"net/http"
@@ -126,6 +127,17 @@ func (s *APIServer) addToLibrary(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		}
 		return
+	}
+
+	// Get manga info for notifications
+	manga, err := s.MangaService.GetManga(req.MangaID)
+	if err == nil {
+		// Broadcast WebSocket notification
+		message := fmt.Sprintf("Added '%s' to library with status: %s", manga.Title, req.Status)
+		go s.ChatHub.BroadcastNotification(req.MangaID, "library_add", message)
+
+		// Trigger UDP notification broadcast (NEW - for SSE clients)
+		go s.triggerUDPNotification(userID, "library_add", fmt.Sprintf("📚 %s added '%s' to library", c.GetString("username"), manga.Title))
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Manga added to library successfully"})
@@ -277,6 +289,14 @@ func (s *APIServer) removeFromLibrary(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		}
 		return
+	}
+
+	// Get manga info for notification
+	manga, err := s.MangaService.GetManga(mangaID)
+	if err == nil {
+		// Broadcast notification to WebSocket
+		message := fmt.Sprintf("Removed '%s' from library", manga.Title)
+		go s.ChatHub.BroadcastNotification(mangaID, "library_remove", message)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Manga removed from library successfully"})

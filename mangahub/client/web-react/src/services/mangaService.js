@@ -3,18 +3,22 @@ import authService from './authService';
 
 const getBaseUrl = () => {
   const port = '8080';
-  if (window.location.hostname === 'localhost') {
-    return `http://localhost:${port}/api/v1/manga`;
+  // Use environment variable if set, otherwise use current hostname
+  if (process.env.REACT_APP_BACKEND_URL) {
+    return `${process.env.REACT_APP_BACKEND_URL}/api/v1/manga`;
   }
-  return `${process.env.REACT_APP_BACKEND_URL}/api/v1/manga`;
+  // Use the same hostname as the frontend (works for localhost and LAN access)
+  return `http://${window.location.hostname}:${port}/api/v1/manga`;
 };
 
 const getGRPCBaseUrl = () => {
   const port = '8080';
-  if (window.location.hostname === 'localhost') {
-    return `http://localhost:${port}/api/v1/grpc`;
+  // Use environment variable if set, otherwise use current hostname
+  if (process.env.REACT_APP_BACKEND_URL) {
+    return `${process.env.REACT_APP_BACKEND_URL}/api/v1/grpc`;
   }
-  return `${process.env.REACT_APP_BACKEND_URL}/api/v1/grpc`;
+  // Use the same hostname as the frontend (works for localhost and LAN access)
+  return `http://${window.location.hostname}:${port}/api/v1/grpc`;
 };
 
 const BASE_URL = getBaseUrl();

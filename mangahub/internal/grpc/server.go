@@ -183,7 +183,6 @@ func (s *Server) UpdateProgress(ctx context.Context, req *pb.ProgressRequest) (*
 	updateReq := models.UpdateProgressRequest{
 		MangaID:        req.MangaId,
 		CurrentChapter: int(req.CurrentChapter),
-		Status:         req.Status,
 	}
 
 	err := s.UserService.UpdateProgress(req.UserId, updateReq)
@@ -222,7 +221,7 @@ func (s *Server) GetLibrary(ctx context.Context, req *pb.LibraryRequest) (*pb.Li
 				MangaId:        p.MangaID,
 				CurrentChapter: int32(p.CurrentChapter),
 				Status:         p.Status,
-				LastUpdated:    p.LastUpdated.Format("2006-01-02T15:04:05Z07:00"),
+				LastUpdated:    p.LastReadAt.Format("2006-01-02T15:04:05Z07:00"),
 				Title:          p.Title,
 				Author:         p.Author,
 				CoverUrl:       p.CoverURL,

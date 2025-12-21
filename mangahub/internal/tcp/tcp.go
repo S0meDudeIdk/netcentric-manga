@@ -85,6 +85,12 @@ func (s *ProgressSyncServer) handleTCPClient(conn net.Conn) {
 	for scanner.Scan() {
 		message := scanner.Text()
 
+		// Handle DISCONNECT command (when user logs out)
+		if message == "DISCONNECT" {
+			log.Printf("Client %s requested disconnect (logout)", addr)
+			return // Exit goroutine, triggers defer cleanup
+		}
+
 		// Handle PING keep-alive messages
 		if message == "PING" {
 			s.mu.Lock()
@@ -180,7 +186,7 @@ func (s *ProgressSyncServer) Close() {
 
 // startHealthCheck periodically checks for dead connections
 func (s *ProgressSyncServer) startHealthCheck() {
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(5 * time.Minute) // Check every 5 minutes
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -189,8 +195,9 @@ func (s *ProgressSyncServer) startHealthCheck() {
 		deadClients := []string{}
 
 		for addr, client := range s.Connections {
-			if now.Sub(client.LastSeen) > 120*time.Second {
-				log.Printf("Client %s timed out, removing...", addr)
+			// Timeout after 6 hours of inactivity
+			if now.Sub(client.LastSeen) > 6*time.Hour {
+				log.Printf("Client %s timed out after 6 hours of inactivity, removing...", addr)
 				client.Conn.Close()
 				deadClients = append(deadClients, addr)
 			}

@@ -183,6 +183,9 @@ func (s *NotificationServer) BroadcastNotification(notification Notification) er
 		notification.Timestamp = time.Now().Unix()
 	}
 
+	// Log the notification being broadcast
+	log.Printf("📢 Broadcasting notification [%s]: %s", notification.Type, notification.Message)
+
 	data, err := json.Marshal(notification)
 	if err != nil {
 		return fmt.Errorf("error marshaling notification: %w", err)
@@ -203,7 +206,7 @@ func (s *NotificationServer) BroadcastNotification(notification Notification) er
 		delete(s.Clients, addr)
 	}
 
-	log.Printf("Notification broadcast to %d clients", len(s.Clients))
+	log.Printf("✅ Notification sent to %d client(s)", len(s.Clients))
 	return nil
 }
 

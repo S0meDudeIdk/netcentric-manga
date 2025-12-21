@@ -1,0 +1,68 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation
+*.md
+docs/
+README.md
+LICENSE
+
+# Tests
+test/
+*_test.go
+*.test
+
+# Build artifacts
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Environment files (will be mounted)
+.env
+.env.*
+!.env.example
+
+# Node modules (for React app, will be installed in container)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Scripts (not needed in containers)
+scripts/
+*.ps1
+*.sh
+
+# Proto files (already compiled)
+*.proto
+
+# Data files (will be mounted as volume)
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+logs/

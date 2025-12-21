@@ -39,6 +39,12 @@ type APIServer struct {
 	httpClient   *http.Client
 	// gRPC client for internal service calls
 	GRPCClient *grpcClient.Client
+	// SSE Hub for real-time updates
+	SSEHub *SSEHub
+	// TCP User Manager for per-user connections
+	TCPUserManager *TCPUserManager
+	// UDP client for receiving broadcasts
+	UDPClient *UDPClient
 }
 
 // NewAPIServer creates a new API server instance
@@ -118,12 +124,26 @@ func NewAPIServer() *APIServer {
 	// WebSocket rooms are created on demand when users join
 	log.Println("WebSocket ChatHub initialized")
 
+	// Pre-create the global-notifications room so notifications can be broadcast immediately
+	server.ChatHub.GetOrCreateRoom("global-notifications")
+	log.Println("✅ Global notifications room created and ready")
+
 	server.httpClient = &http.Client{
 		Timeout: 5 * time.Second,
 	}
 
+	// Initialize SSE Hub
+	server.SSEHub = NewSSEHub()
+	log.Println("✅ SSE Hub initialized for real-time updates")
+
 	server.initializeTCP()
 	server.initializeUDP()
+
+	// Initialize TCP User Manager for per-user connections
+	server.initializeTCPUserManager()
+
+	// Initialize UDP client to receive notifications
+	go server.initializeUDPClient()
 
 	// Connect to gRPC server
 	go server.connectToGRPCServer()
@@ -157,6 +177,8 @@ func (s *APIServer) healthCheck(c *gin.Context) {
 
 // Start starts the HTTP server
 func (s *APIServer) Start() error {
+	log.Println("✅ ChatHub already started in NewChatHub()")
+
 	log.Printf("Starting API server on port %s", s.Port)
 	// return s.Router.Run(":" + s.Port)
 	return s.Router.Run("0.0.0.0:8080")

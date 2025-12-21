@@ -50,5 +50,32 @@ func (s *APIServer) login(c *gin.Context) {
 		return
 	}
 
+	// Establish TCP connection for this user
+	if s.TCPUserManager != nil {
+		go func() {
+			err := s.TCPUserManager.ConnectUser(response.User.ID)
+			if err != nil {
+				log.Printf("Warning: Failed to establish TCP connection for user %s: %v", response.User.ID, err)
+			}
+		}()
+	}
+
 	c.JSON(http.StatusOK, response)
+}
+
+// Logout endpoint - disconnects user's TCP connection
+func (s *APIServer) logout(c *gin.Context) {
+	// Get user ID from context (set by auth middleware)
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Disconnect user's TCP connection
+	if s.TCPUserManager != nil {
+		s.TCPUserManager.DisconnectUser(userID.(string))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
 }
