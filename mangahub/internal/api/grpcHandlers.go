@@ -151,6 +151,7 @@ func (s *APIServer) searchMangaViaGRPC(c *gin.Context) {
 // updateProgressViaGRPC updates reading progress via gRPC service (UC-016)
 func (s *APIServer) updateProgressViaGRPC(c *gin.Context) {
 	userID := c.GetString("user_id")
+	userName := c.GetString("username")
 
 	var req struct {
 		MangaID        string `json:"manga_id" binding:"required"`
@@ -190,6 +191,12 @@ func (s *APIServer) updateProgressViaGRPC(c *gin.Context) {
 		})
 		return
 	}
+
+	// Trigger TCP progress update broadcast via HTTP (same as REST API)
+	go s.triggerTCPBroadcast(userID, userName, req.MangaID, req.CurrentChapter)
+
+	// Broadcast progress update to WebSocket clients in the manga's chat room
+	go s.ChatHub.BroadcastProgressUpdate(userID, userName, req.MangaID, req.CurrentChapter)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": resp.Message,
