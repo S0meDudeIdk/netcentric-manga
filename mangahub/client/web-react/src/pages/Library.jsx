@@ -179,7 +179,12 @@ const Library = () => {
                 className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4"
               >
                 {filteredLibrary.map((item, idx) => (
-                  <MangaCard key={item.manga_id} manga={item.manga} index={idx} />
+                  <MangaCard 
+                    key={item.manga_id} 
+                    manga={item.manga} 
+                    index={idx}
+                    currentChapter={item.current_chapter}
+                  />
                 ))}
               </motion.div>
             ) : (

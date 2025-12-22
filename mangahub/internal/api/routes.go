@@ -12,8 +12,9 @@ import (
 
 // setupRoutes configures all API routes
 func (s *APIServer) setupRoutes() {
-	// Health check
+	// Health check (support both GET and HEAD for Docker health checks)
 	s.Router.GET("/health", s.healthCheck)
+	s.Router.HEAD("/health", s.healthCheck)
 
 	// API version 1
 	v1 := s.Router.Group("/api/v1")
@@ -102,25 +103,31 @@ func (s *APIServer) setupRoutes() {
 			// WebSocket chat endpoint (protected - requires authentication)
 			protected.GET("/ws/chat", internalWebsocket.HandleWebSocketChat(s.ChatHub, s.upgrader))
 
-			// gRPC-backed endpoints (protected)
-			grpcRoutes := protected.Group("/grpc")
+			// gRPC-backed endpoints (protected - user-specific operations)
+			grpcProtected := protected.Group("/grpc")
 			{
-				grpcRoutes.GET("/manga/:id", s.getMangaViaGRPC)
-				grpcRoutes.GET("/manga/search", s.searchMangaViaGRPC)
-				grpcRoutes.PUT("/progress/update", s.updateProgressViaGRPC)
+				grpcProtected.PUT("/progress/update", s.updateProgressViaGRPC)
 
 				// Library management via gRPC
-				grpcRoutes.GET("/library", s.getLibraryViaGRPC)
-				grpcRoutes.POST("/library", s.addToLibraryViaGRPC)
-				grpcRoutes.DELETE("/library/:manga_id", s.removeFromLibraryViaGRPC)
-				grpcRoutes.GET("/library/stats", s.getLibraryStatsViaGRPC)
+				grpcProtected.GET("/library", s.getLibraryViaGRPC)
+				grpcProtected.POST("/library", s.addToLibraryViaGRPC)
+				grpcProtected.DELETE("/library/:manga_id", s.removeFromLibraryViaGRPC)
+				grpcProtected.GET("/library/stats", s.getLibraryStatsViaGRPC)
 
 				// Rating system via gRPC
-				grpcRoutes.POST("/rating", s.rateMangaViaGRPC)
-				grpcRoutes.GET("/rating/:manga_id", s.getMangaRatingsViaGRPC)
-				grpcRoutes.DELETE("/rating/:manga_id", s.deleteRatingViaGRPC)
+				grpcProtected.POST("/rating", s.rateMangaViaGRPC)
+				grpcProtected.DELETE("/rating/:manga_id", s.deleteRatingViaGRPC)
 			}
 		}
+
+		// Public gRPC endpoints (no auth required for browsing)
+		grpcPublic := v1.Group("/grpc")
+		{
+			grpcPublic.GET("/manga/:id", s.getMangaViaGRPC)
+			grpcPublic.GET("/manga/search", s.searchMangaViaGRPC)
+			grpcPublic.GET("/rating/:manga_id", optionalAuthMiddleware(), s.getMangaRatingsViaGRPC)
+		}
+
 		// WebSocket stats endpoint (public for monitoring)
 		v1.GET("/ws/stats", internalWebsocket.GetWebSocketStats(s.ChatHub))
 	}

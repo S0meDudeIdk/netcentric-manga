@@ -3,10 +3,9 @@ import authService from './authService';
 
 const getBaseUrl = () => {
   const port = '8080';
-  if (window.location.hostname === 'localhost') {
-    return `http://localhost:${port}/api/v1/grpc`;
-  }
-  return `${process.env.REACT_APP_BACKEND_URL}/api/v1/grpc`;
+  // Use current hostname dynamically - works with any IP address
+  const hostname = window.location.hostname;
+  return `http://${hostname}:${port}/api/v1/grpc`;
 };
 
 const BASE_URL = getBaseUrl();

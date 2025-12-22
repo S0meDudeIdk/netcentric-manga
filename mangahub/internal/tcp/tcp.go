@@ -39,13 +39,15 @@ func NewProgressSyncServer(port string) *ProgressSyncServer {
 }
 
 func (s *ProgressSyncServer) Start() error {
-	listener, err := net.Listen("tcp", s.Port)
+	// Bind to 0.0.0.0 to accept connections from all network interfaces
+	bindAddr := "0.0.0.0" + s.Port
+	listener, err := net.Listen("tcp", bindAddr)
 	if err != nil {
 		return fmt.Errorf("error starting tcp server: %w", err)
 	}
 	defer listener.Close()
 
-	log.Println("TCP Server listening on", s.Port)
+	log.Println("TCP Server listening on", bindAddr)
 
 	go s.handleBroadcast()
 	go s.startHealthCheck()

@@ -448,7 +448,7 @@ func (s *Server) ChangePassword(ctx context.Context, req *pb.ChangePasswordReque
 
 // Start starts the gRPC server
 func (s *Server) Start(port string) error {
-	lis, err := net.Listen("tcp", ":"+port)
+	lis, err := net.Listen("tcp", "0.0.0.0:"+port)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %v", err)
 	}

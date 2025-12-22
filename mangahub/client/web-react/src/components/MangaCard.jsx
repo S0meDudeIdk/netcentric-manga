@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Book, Star, Calendar } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const MangaCard = ({ manga, index = 0 }) => {
+const MangaCard = ({ manga, index = 0, currentChapter }) => {
   const navigate = useNavigate();
 
   const handleClick = () => {
@@ -97,7 +97,7 @@ const MangaCard = ({ manga, index = 0 }) => {
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
           <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
             <Book className="w-3.5 h-3.5" />
-            <span>{manga.total_chapters || "?"} ch</span>
+            <span>{currentChapter !== undefined ? currentChapter : (manga.total_chapters || "?")} ch</span>
           </div>
 
           {manga.publication_year && (

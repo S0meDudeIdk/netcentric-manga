@@ -91,8 +91,9 @@ func corsMiddleware() gin.HandlerFunc {
 
 // setupRoutes configures all API routes
 func (s *FetchMangaServer) setupRoutes() {
-	// Health check
+	// Health check (support both GET and HEAD for Docker health checks)
 	s.Router.GET("/health", s.healthCheck)
+	s.Router.HEAD("/health", s.healthCheck)
 
 	// API version 1
 	v1 := s.Router.Group("/api/v1")

@@ -1,0 +1,212 @@
+services:
+  # 1. TCP Server - First to start
+  tcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mangahub-tcp-server
+    command: ["/app/tcp-server"]
+    ports:
+      - "9001:9001"  # TCP server port
+      - "9010:9010"  # TCP HTTP trigger API
+    environment:
+      - TCP_SERVER_PORT=9001
+      - TCP_SERVER_HTTP_PORT=9010
+    networks:
+      - mangahub-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9010/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # 2. UDP Server - Starts after TCP
+  udp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mangahub-udp-server
+    command: ["/app/udp-server"]
+    ports:
+      - "9002:9002/udp"  # UDP server port
+      - "9020:9020"      # UDP HTTP trigger API
+    environment:
+      - UDP_SERVER_PORT=9002
+      - UDP_SERVER_HTTP_PORT=9020
+    networks:
+      - mangahub-network
+    depends_on:
+      tcp-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9020/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # 3. gRPC Server - Starts after UDP
+  grpc-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mangahub-grpc-server
+    command: ["/app/grpc-server"]
+    ports:
+      - "9003:9003"  # gRPC server port
+    environment:
+      - GRPC_SERVER_PORT=9003
+      - GRPC_SERVER_ADDR=0.0.0.0:9003
+      - TCP_SERVER_ADDR=tcp-server:9001
+      - JWT_SECRET=${JWT_SECRET:-2537ea31c4981475027b14c13040cfbe24158da9769c3098ebebe05cbc915c1f}
+      - MANGADEX_API_BASE_URL=https://api.mangadex.org
+      - MANGADEX_API_TIMEOUT=15
+      - MANGADEX_DEBUG=false
+      - MANGADEX_API_KEY=${MANGADEX_API_KEY}
+    volumes:
+      - manga-data:/app/data
+    networks:
+      - mangahub-network
+    depends_on:
+      udp-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 9003 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # 4. API Server - Starts after gRPC
+  api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mangahub-api-server
+    command: ["/app/api-server"]
+    ports:
+      - "8080:8080"  # HTTP API port
+    environment:
+      - PORT=8080
+      - GIN_MODE=release
+      - JWT_SECRET=${JWT_SECRET:-2537ea31c4981475027b14c13040cfbe24158da9769c3098ebebe05cbc915c1f}
+      - CORS_ALLOW_ORIGINS=*
+      - CORS_ALLOW_METHODS=GET,POST,PUT,DELETE,OPTIONS
+      - CORS_ALLOW_HEADERS=Origin,Content-Type,Authorization
+      - RATE_LIMIT_REQUESTS_PER_MINUTE=100
+      - MAX_REQUEST_SIZE_MB=10
+      - MAL_CLIENT_ID=${MAL_CLIENT_ID}
+      - MAL_CLIENT_SECRET=${MAL_CLIENT_SECRET}
+      - JIKAN_API_BASE_URL=https://api.jikan.moe/v4
+      - JIKAN_RATE_LIMIT_SECONDS=1
+      - MANGADEX_API_BASE_URL=https://api.mangadex.org
+      - MANGADEX_API_TIMEOUT=15
+      - MANGADEX_DEBUG=false
+      - MANGADEX_API_KEY=${MANGADEX_API_KEY}
+      - MANGAPLUS_API_BASE_URL=https://jumpg-webapi.tokyo-cdn.com/api
+      - MANGAPLUS_API_TIMEOUT=15
+      - MANGAPLUS_DEBUG=false
+      - TCP_SERVER_PORT=9001
+      - TCP_SERVER_ADDR=tcp-server:9001
+      - TCP_SERVER_HTTP_ADDR=http://tcp-server:9010
+      - GRPC_SERVER_PORT=9003
+      - GRPC_SERVER_ADDR=grpc-server:9003
+      - UDP_SERVER_PORT=9002
+      - UDP_SERVER_ADDR=udp-server:9002
+      - UDP_SERVER_HTTP_ADDR=http://udp-server:9020
+      - WS_ENABLED=true
+      - LOG_LEVEL=info
+      - MANGA_DATA_FILE=/app/data/manga.json
+    volumes:
+      - manga-data:/app/data
+    networks:
+      - mangahub-network
+    depends_on:
+      grpc-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # 5. Web React - Starts after API Server
+  web-react:
+    build:
+      context: ./client/web-react
+      dockerfile: Dockerfile
+    container_name: mangahub-web-react
+    ports:
+      - "3000:80"  # Nginx serves on port 80, exposed as 3000
+    environment:
+      - REACT_APP_BACKEND_URL=http://localhost:8080
+      - REACT_APP_USE_GRPC_LIBRARY=true
+      - REACT_APP_USE_GRPC_RATING=true
+      - REACT_APP_USE_GRPC_PROGRESS=true
+    networks:
+      - mangahub-network
+    depends_on:
+      api-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # 6. Fetch Manga Server - Starts last
+  fetch-manga-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mangahub-fetch-manga-server
+    command: ["/app/fetch-manga-server"]
+    ports:
+      - "8082:8082"  # Fetch manga server port
+    environment:
+      - FETCH_MANGA_PORT=8082
+      - GIN_MODE=release
+      - JWT_SECRET=${JWT_SECRET:-2537ea31c4981475027b14c13040cfbe24158da9769c3098ebebe05cbc915c1f}
+      - MAL_CLIENT_ID=${MAL_CLIENT_ID}
+      - MAL_CLIENT_SECRET=${MAL_CLIENT_SECRET}
+      - JIKAN_API_BASE_URL=https://api.jikan.moe/v4
+      - JIKAN_RATE_LIMIT_SECONDS=1
+      - MANGADEX_API_BASE_URL=https://api.mangadex.org
+      - MANGADEX_API_TIMEOUT=15
+      - MANGADEX_DEBUG=false
+      - MANGADEX_API_KEY=${MANGADEX_API_KEY}
+      - MANGAPLUS_API_BASE_URL=https://jumpg-webapi.tokyo-cdn.com/api
+      - MANGAPLUS_API_TIMEOUT=15
+      - MANGAPLUS_DEBUG=false
+      - CORS_ALLOW_ORIGINS=*
+      - LOG_LEVEL=info
+    volumes:
+      - manga-data:/app/data
+    networks:
+      - mangahub-network
+    depends_on:
+      web-react:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+networks:
+  mangahub-network:
+    driver: bridge
+
+volumes:
+  manga-data:
+    driver: local

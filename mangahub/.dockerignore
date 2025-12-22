@@ -1,0 +1,66 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+docs/
+README*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Test files
+*_test.go
+test/
+**/*_test.go
+
+# Build artifacts
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+grpc-server.exe
+
+# Go
+vendor/
+
+# Node modules (if any)
+node_modules/
+npm-debug.log
+
+# Client directory (has its own Dockerfile)
+client/
+
+# Environment files (will be set via docker-compose)
+.env
+.env.local
+.env.docker
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Scripts (for development only)
+scripts/
+
+# Docker files (not needed in image)
+.dockerignore
+Dockerfile*
+docker-compose*.yml
+docker-start.ps1
+docker-validate.ps1
+DOCKER*.md

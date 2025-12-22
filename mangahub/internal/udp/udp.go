@@ -43,7 +43,9 @@ func NewNotificationServer(port string) *NotificationServer {
 }
 
 func (s *NotificationServer) Start() error {
-	addr, err := net.ResolveUDPAddr("udp", s.Port)
+	// Bind to 0.0.0.0 to accept connections from all network interfaces
+	bindAddr := "0.0.0.0" + s.Port
+	addr, err := net.ResolveUDPAddr("udp", bindAddr)
 	if err != nil {
 		return fmt.Errorf("error resolving UDP address:%w", err)
 	}
@@ -55,7 +57,7 @@ func (s *NotificationServer) Start() error {
 	s.conn = conn
 	defer conn.Close()
 
-	log.Printf("UDP Notification Server listening on %s", s.Port)
+	log.Printf("UDP Notification Server listening on %s", bindAddr)
 
 	// Start heartbeat checker in background
 	go s.startHeartbeat()

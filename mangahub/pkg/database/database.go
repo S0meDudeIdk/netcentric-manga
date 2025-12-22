@@ -14,7 +14,13 @@ import (
 var DB *sql.DB
 
 // findProjectRoot finds the project root by looking for go.mod
+// In Docker, falls back to /app or current directory
 func findProjectRoot() (string, error) {
+	// Check if we're in Docker (look for /app directory)
+	if _, err := os.Stat("/app"); err == nil {
+		return "/app", nil
+	}
+
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", err
@@ -27,8 +33,9 @@ func findProjectRoot() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached root without finding go.mod
-			return "", fmt.Errorf("could not find project root (go.mod)")
+			// Reached root without finding go.mod, use current directory
+			log.Println("Warning: go.mod not found, using current directory")
+			return dir, nil
 		}
 		dir = parent
 	}

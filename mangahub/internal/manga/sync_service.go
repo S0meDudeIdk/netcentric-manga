@@ -127,6 +127,17 @@ func (s *SyncService) SyncFromMAL(query string, limit int) (*SyncResult, error) 
 			}
 		}
 
+		// Update total_chapters in database with actual stored count
+		if stored > 0 {
+			log.Printf("  Updating total_chapters to %d...", stored)
+			_, err := s.db.Exec(`UPDATE manga SET total_chapters = ? WHERE id = ?`, stored, manga.ID)
+			if err != nil {
+				log.Printf("  WARNING: Failed to update total_chapters: %v", err)
+			} else {
+				log.Printf("  Total chapters updated successfully")
+			}
+		}
+
 		result.Synced++
 		result.Details = append(result.Details, fmt.Sprintf("✅ Synced '%s': %d chapters from %s", malData.Title, stored, source))
 		log.Printf("  Successfully synced with %d/%d chapters stored", stored, len(chapters))
@@ -210,6 +221,17 @@ func (s *SyncService) SyncTopManga(limit int) (*SyncResult, error) {
 				log.Printf("  WARNING: Failed to store chapter %s: %v", chapter.ChapterNumber, err)
 			} else {
 				stored++
+			}
+		}
+
+		// Update total_chapters in database with actual stored count
+		if stored > 0 {
+			log.Printf("  Updating total_chapters to %d...", stored)
+			_, err := s.db.Exec(`UPDATE manga SET total_chapters = ? WHERE id = ?`, stored, manga.ID)
+			if err != nil {
+				log.Printf("  WARNING: Failed to update total_chapters: %v", err)
+			} else {
+				log.Printf("  Total chapters updated successfully")
 			}
 		}
 
@@ -369,6 +391,17 @@ func (s *SyncService) SyncFromMangaDex(maxManga int) (*SyncResult, error) {
 					log.Printf("    WARNING: Failed to store chapter %s: %v", chNum, err)
 				} else {
 					stored++
+				}
+			}
+
+			// Update total_chapters in database with actual stored count
+			if stored > 0 {
+				log.Printf("    Updating total_chapters to %d...", stored)
+				_, err := s.db.Exec(`UPDATE manga SET total_chapters = ? WHERE id = ?`, stored, manga.ID)
+				if err != nil {
+					log.Printf("    WARNING: Failed to update total_chapters: %v", err)
+				} else {
+					log.Printf("    Total chapters updated successfully")
 				}
 			}
 
