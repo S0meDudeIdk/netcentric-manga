@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -31,6 +31,21 @@ const AppLayout = () => {
   const [notifications, setNotifications] = useState([]);
   const wsInitializedRef = useRef(false);
 
+  const addNotification = useCallback((notificationData) => {
+    const notification = {
+      id: Date.now() + Math.random(),
+      message: notificationData.message,
+      manga_id: notificationData.manga_id,
+      timestamp: notificationData.timestamp,
+    };
+
+    setNotifications((prev) => [...prev, notification]);
+  }, []); // Empty dependencies - function never changes
+
+  const removeNotification = useCallback((id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  }, []);
+
   useEffect(() => {
     // Only subscribe to notifications if user is authenticated
     if (!authService.isAuthenticated() || wsInitializedRef.current) {
@@ -47,7 +62,6 @@ const AppLayout = () => {
     websocketService.connect(notificationRoomId, token, {
       onMessage: (data) => {
         if (data.type === 'notification') {
-          console.log('🔔 Received notification:', data);
           addNotification(data);
         }
       },
@@ -62,22 +76,7 @@ const AppLayout = () => {
       websocketService.disconnect(notificationRoomId);
       wsInitializedRef.current = false;
     };
-  }, [location.pathname]); // Re-subscribe when navigating
-
-  const addNotification = (notificationData) => {
-    const notification = {
-      id: Date.now() + Math.random(),
-      message: notificationData.message,
-      manga_id: notificationData.manga_id,
-      timestamp: notificationData.timestamp,
-    };
-
-    setNotifications((prev) => [...prev, notification]);
-  };
-
-  const removeNotification = (id) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-  };
+  }, [addNotification]); // addNotification is stable due to useCallback
 
   return (
     <div className="App min-h-screen flex flex-col bg-gray-50">

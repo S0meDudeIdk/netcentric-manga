@@ -168,9 +168,8 @@ func (c *Client) UserMenu() {
 	fmt.Println("\n1. Browse Manga")
 	fmt.Println("2. Search Manga")
 	fmt.Println("3. My Library")
-	fmt.Println("4. Get Recommendations")
-	fmt.Println("5. Join General Chat")
-	fmt.Println("6. Logout")
+	fmt.Println("4. Join General Chat")
+	fmt.Println("5. Logout")
 	fmt.Print("\nSelect an option: ")
 
 	choice := c.readInput()
@@ -184,10 +183,8 @@ func (c *Client) UserMenu() {
 	case "3":
 		c.MyLibrary()
 	case "4":
-		c.GetRecommendations()
-	case "5":
 		c.JoinChatHub(baseURL, "general", "General Chat")
-	case "6":
+	case "5":
 		c.Logout()
 	default:
 		fmt.Println(colorRed + "❌ Invalid option" + colorReset)
@@ -732,6 +729,8 @@ func (c *Client) AddToLibrary(mangaID string) {
 	fmt.Println("2. Plan to Read")
 	fmt.Println("3. Completed")
 	fmt.Println("4. Dropped")
+	fmt.Println("5. On Hold")
+	fmt.Println("6. Re-reading")
 	fmt.Print("\nChoice: ")
 
 	choice := c.readInput()
@@ -740,6 +739,8 @@ func (c *Client) AddToLibrary(mangaID string) {
 		"2": "plan_to_read",
 		"3": "completed",
 		"4": "dropped",
+		"5": "on_hold",
+		"6": "re_reading",
 	}
 
 	status, ok := statusMap[choice]
@@ -748,6 +749,25 @@ func (c *Client) AddToLibrary(mangaID string) {
 		return
 	}
 
+	// Try gRPC first, fallback to REST API
+	if c.grpcEnabled && c.grpcClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := c.grpcClient.AddToLibrary(ctx, c.UserID, mangaID, status)
+		cancel()
+
+		if err != nil {
+			fmt.Printf("%s⚠️  gRPC error: %v, falling back to REST API%s\n", colorYellow, err, colorReset)
+			c.grpcEnabled = false
+		} else if resp.Success {
+			fmt.Println(colorGreen + "✅ Added to library!" + colorReset)
+			return
+		} else if resp.Error != "" {
+			fmt.Println(colorRed + "❌ Error: " + resp.Error + colorReset)
+			return
+		}
+	}
+
+	// Fallback to REST API if gRPC failed
 	data := map[string]string{
 		"manga_id": mangaID,
 		"status":   status,
@@ -765,16 +785,77 @@ func (c *Client) AddToLibrary(mangaID string) {
 func (c *Client) MyLibrary() {
 	fmt.Println(colorCyan + "📚 My Library" + colorReset)
 
-	resp, err := c.makeRequest("GET", apiURL+"/users/library", nil, true)
-	if err != nil {
-		fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
-		return
+	var library map[string][]UserProgress
+
+	// Try gRPC first, fallback to REST API
+	if c.grpcEnabled && c.grpcClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := c.grpcClient.GetLibrary(ctx, c.UserID)
+		cancel()
+
+		if err != nil {
+			fmt.Printf("%s⚠️  gRPC error: %v, falling back to REST API%s\n", colorYellow, err, colorReset)
+			c.grpcEnabled = false
+		} else {
+			// Convert gRPC response to local format
+			library = make(map[string][]UserProgress)
+			for _, p := range resp.Reading {
+				library["reading"] = append(library["reading"], UserProgress{
+					MangaID:        p.MangaId,
+					CurrentChapter: int(p.CurrentChapter),
+					Status:         p.Status,
+				})
+			}
+			for _, p := range resp.Completed {
+				library["completed"] = append(library["completed"], UserProgress{
+					MangaID:        p.MangaId,
+					CurrentChapter: int(p.CurrentChapter),
+					Status:         p.Status,
+				})
+			}
+			for _, p := range resp.PlanToRead {
+				library["plan_to_read"] = append(library["plan_to_read"], UserProgress{
+					MangaID:        p.MangaId,
+					CurrentChapter: int(p.CurrentChapter),
+					Status:         p.Status,
+				})
+			}
+			for _, p := range resp.Dropped {
+				library["dropped"] = append(library["dropped"], UserProgress{
+					MangaID:        p.MangaId,
+					CurrentChapter: int(p.CurrentChapter),
+					Status:         p.Status,
+				})
+			}
+			for _, p := range resp.OnHold {
+				library["on_hold"] = append(library["on_hold"], UserProgress{
+					MangaID:        p.MangaId,
+					CurrentChapter: int(p.CurrentChapter),
+					Status:         p.Status,
+				})
+			}
+			for _, p := range resp.ReReading {
+				library["re_reading"] = append(library["re_reading"], UserProgress{
+					MangaID:        p.MangaId,
+					CurrentChapter: int(p.CurrentChapter),
+					Status:         p.Status,
+				})
+			}
+		}
 	}
 
-	var library map[string][]UserProgress
-	if err := json.Unmarshal(resp, &library); err != nil {
-		fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
-		return
+	// Fallback to REST API if gRPC failed
+	if !c.grpcEnabled {
+		resp, err := c.makeRequest("GET", apiURL+"/users/library", nil, true)
+		if err != nil {
+			fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
+			return
+		}
+
+		if err := json.Unmarshal(resp, &library); err != nil {
+			fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
+			return
+		}
 	}
 
 	categories := []struct {
@@ -785,6 +866,8 @@ func (c *Client) MyLibrary() {
 		{"📖 Reading", colorGreen, "reading"},
 		{"✅ Completed", colorBlue, "completed"},
 		{"📋 Plan to Read", colorYellow, "plan_to_read"},
+		{"⏸️  On Hold", colorPurple, "on_hold"},
+		{"🔄 Re-reading", colorCyan, "re_reading"},
 		{"❌ Dropped", colorRed, "dropped"},
 	}
 
@@ -820,15 +903,52 @@ func (c *Client) UpdateProgress() {
 
 	fmt.Println("\nSelect status:")
 	fmt.Println("1. Reading")
-	fmt.Println("2. Completed")
+	fmt.Println("2. Plan to Read")
+	fmt.Println("3. Completed")
+	fmt.Println("4. Dropped")
+	fmt.Println("5. On Hold")
+	fmt.Println("6. Re-reading")
 	fmt.Print("\nChoice: ")
 	choice := c.readInput()
 
-	status := "reading"
-	if choice == "2" {
-		status = "completed"
+	statusMap := map[string]string{
+		"1": "reading",
+		"2": "plan_to_read",
+		"3": "completed",
+		"4": "dropped",
+		"5": "on_hold",
+		"6": "re_reading",
 	}
 
+	status, ok := statusMap[choice]
+	if !ok {
+		fmt.Println(colorRed + "❌ Invalid status" + colorReset)
+		return
+	}
+
+	// Try gRPC first, fallback to REST API
+	if c.grpcEnabled && c.grpcClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := c.grpcClient.UpdateProgress(ctx, c.UserID, mangaID, int32(chapter), status)
+		cancel()
+
+		if err != nil {
+			fmt.Printf("%s⚠️  gRPC error: %v, falling back to REST API%s\n", colorYellow, err, colorReset)
+			c.grpcEnabled = false
+		} else if resp.Success {
+			fmt.Println(colorGreen + "✅ Progress updated!" + colorReset)
+			// Sync progress to TCP server for real-time updates
+			if c.tcpEnabled {
+				fmt.Println(colorCyan + "📡 Progress synced to other clients" + colorReset)
+			}
+			return
+		} else if resp.Error != "" {
+			fmt.Println(colorRed + "❌ Error: " + resp.Error + colorReset)
+			return
+		}
+	}
+
+	// Fallback to REST API if gRPC failed
 	data := map[string]interface{}{
 		"manga_id":        mangaID,
 		"current_chapter": chapter,
@@ -851,16 +971,44 @@ func (c *Client) UpdateProgress() {
 }
 
 func (c *Client) ViewLibraryStats() {
-	resp, err := c.makeRequest("GET", apiURL+"/users/library/stats", nil, true)
-	if err != nil {
-		fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
-		return
+	var stats map[string]interface{}
+
+	// Try gRPC first, fallback to REST API
+	if c.grpcEnabled && c.grpcClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		resp, err := c.grpcClient.GetLibraryStats(ctx, c.UserID)
+		cancel()
+
+		if err != nil {
+			fmt.Printf("%s⚠️  gRPC error: %v, falling back to REST API%s\n", colorYellow, err, colorReset)
+			c.grpcEnabled = false
+		} else {
+			// Convert gRPC response to map format for display
+			stats = map[string]interface{}{
+				"total_manga":         resp.TotalManga,
+				"reading":             resp.Reading,
+				"completed":           resp.Completed,
+				"plan_to_read":        resp.PlanToRead,
+				"dropped":             resp.Dropped,
+				"on_hold":             resp.OnHold,
+				"re_reading":          resp.ReReading,
+				"total_chapters_read": resp.TotalChaptersRead,
+			}
+		}
 	}
 
-	var stats map[string]interface{}
-	if err := json.Unmarshal(resp, &stats); err != nil {
-		fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
-		return
+	// Fallback to REST API if gRPC failed
+	if !c.grpcEnabled {
+		resp, err := c.makeRequest("GET", apiURL+"/users/library/stats", nil, true)
+		if err != nil {
+			fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
+			return
+		}
+
+		if err := json.Unmarshal(resp, &stats); err != nil {
+			fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
+			return
+		}
 	}
 
 	fmt.Println("\n" + strings.Repeat("═", 40))
@@ -870,33 +1018,6 @@ func (c *Client) ViewLibraryStats() {
 		fmt.Printf("%s: %v\n", key, value)
 	}
 	fmt.Println(strings.Repeat("═", 40))
-}
-
-func (c *Client) GetRecommendations() {
-	fmt.Println(colorCyan + "💡 Recommendations" + colorReset)
-
-	resp, err := c.makeRequest("GET", apiURL+"/users/recommendations?limit=5", nil, true)
-	if err != nil {
-		fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
-		return
-	}
-
-	var result struct {
-		Recommendations []Manga `json:"recommendations"`
-		Count           int     `json:"count"`
-	}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
-		return
-	}
-
-	fmt.Printf("\n%s💡 We recommend these %d manga for you:%s\n\n", colorGreen, result.Count, colorReset)
-	for i, manga := range result.Recommendations {
-		c.DisplayManga(i+1, manga)
-	}
-
-	fmt.Print("\nPress Enter to continue...")
-	c.readInput()
 }
 
 func (c *Client) DisplayManga(num int, manga Manga) {

@@ -32,7 +32,7 @@ class WebSocketService {
 
     const connectionData = {
       ws: null, // Will be set after WebSocket creation
-      listeners: new Set([callbacks]),
+      listeners: new Set(),
       roomId,
       token
     };
