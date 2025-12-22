@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -410,33 +409,6 @@ func (c *MangaDexClient) SearchManga(title string, limit int) (*MangaDexMangaRes
 	}
 
 	return &result, nil
-}
-
-// ExtractMangaDexID extracts MangaDex ID from various formats
-func ExtractMangaDexID(identifier string) (string, error) {
-	// Remove any URL prefix
-	identifier = strings.TrimSpace(identifier)
-
-	// If it's a full URL, extract the ID
-	if strings.Contains(identifier, "mangadex.org") {
-		parts := strings.Split(identifier, "/")
-		for i, part := range parts {
-			if part == "title" && i+1 < len(parts) {
-				return parts[i+1], nil
-			}
-		}
-		return "", fmt.Errorf("invalid MangaDex URL")
-	}
-
-	// If it has "mangadex-" prefix, remove it
-	identifier = strings.TrimPrefix(identifier, "mangadex-")
-
-	// Validate UUID format (MangaDex uses UUIDs)
-	if len(identifier) == 36 && strings.Count(identifier, "-") == 4 {
-		return identifier, nil
-	}
-
-	return "", fmt.Errorf("invalid MangaDex ID format")
 }
 
 // GetMangaList fetches a paginated list of manga from MangaDex

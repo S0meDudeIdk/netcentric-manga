@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -227,38 +226,6 @@ func (c *MangaPlusClient) SearchByTitle(title string) ([]int, error) {
 	// 3. Use a third-party API that indexes MangaPlus content
 
 	return nil, fmt.Errorf("MangaPlus does not provide a public search API")
-}
-
-// ExtractMangaPlusID extracts MangaPlus title ID from various formats
-func ExtractMangaPlusID(identifier string) (int, error) {
-	identifier = strings.TrimSpace(identifier)
-
-	// If it's a URL, try to extract the title ID
-	if strings.Contains(identifier, "mangaplus.shueisha.co.jp") {
-		parts := strings.Split(identifier, "/")
-		for i, part := range parts {
-			if part == "titles" && i+1 < len(parts) {
-				var titleID int
-				_, err := fmt.Sscanf(parts[i+1], "%d", &titleID)
-				if err != nil {
-					return 0, fmt.Errorf("invalid MangaPlus URL: %w", err)
-				}
-				return titleID, nil
-			}
-		}
-		return 0, fmt.Errorf("invalid MangaPlus URL format")
-	}
-
-	// If it has "mangaplus-" prefix, remove it and parse
-	identifier = strings.TrimPrefix(identifier, "mangaplus-")
-
-	var titleID int
-	_, err := fmt.Sscanf(identifier, "%d", &titleID)
-	if err != nil {
-		return 0, fmt.Errorf("invalid MangaPlus ID format: %w", err)
-	}
-
-	return titleID, nil
 }
 
 // GetAllChapters combines first and last chapter lists

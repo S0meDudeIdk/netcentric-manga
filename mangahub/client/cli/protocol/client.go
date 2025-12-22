@@ -623,60 +623,6 @@ func (c *Client) SearchManga() {
 	}
 }
 
-func (c *Client) SearchMAL() {
-	fmt.Println(colorCyan + "🌐 Search MyAnimeList" + colorReset)
-	fmt.Print("Enter search query: ")
-	query := c.readInput()
-
-	if query == "" {
-		return
-	}
-
-	url := fmt.Sprintf("%s/manga/mal/search?q=%s", apiURL, query)
-	resp, err := c.makeRequest("GET", url, nil, false) // MAL search is public
-	if err != nil {
-		fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
-		return
-	}
-
-	var result struct {
-		Data  []Manga `json:"data"`
-		Total int     `json:"total"`
-	}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
-		return
-	}
-
-	fmt.Printf("\n%s🌐 Found %d manga on MyAnimeList matching '%s':%s\n\n", colorGreen, result.Total, query, colorReset)
-	for i, manga := range result.Data {
-		c.DisplayManga(i+1, manga)
-	}
-
-	fmt.Print("\nEnter manga number to view details (or press Enter to return): ")
-	choice := c.readInput()
-	if choice != "" {
-		if idx, err := strconv.Atoi(choice); err == nil && idx > 0 && idx <= len(result.Data) {
-			c.ViewMALMangaDetails(result.Data[idx-1])
-		}
-	}
-}
-
-func (c *Client) ViewMALMangaDetails(manga Manga) {
-	fmt.Println("\n" + strings.Repeat("═", 60))
-	fmt.Printf("%s📖 %s%s\n", colorCyan, manga.Title, colorReset)
-	fmt.Printf("%s🌐 Source: MyAnimeList%s\n", colorYellow, colorReset)
-	fmt.Println(strings.Repeat("═", 60))
-	fmt.Printf("%s✍️  Author:%s %s\n", colorYellow, colorReset, manga.Author)
-	fmt.Printf("%s📊 Status:%s %s\n", colorYellow, colorReset, manga.Status)
-	fmt.Printf("%s📚 Chapters:%s %d\n", colorYellow, colorReset, manga.TotalChapters)
-	fmt.Printf("%s🏷️  Genres:%s %s\n", colorYellow, colorReset, strings.Join(manga.Genres, ", "))
-	fmt.Printf("\n%s📝 Description:%s\n%s\n", colorYellow, colorReset, manga.Description)
-	fmt.Println(strings.Repeat("═", 60))
-	fmt.Println("\nPress Enter to return...")
-	c.readInput()
-}
-
 func (c *Client) ViewMangaDetails(manga Manga) {
 	// Try to get fresh details via gRPC
 	if c.grpcEnabled && c.grpcClient != nil {

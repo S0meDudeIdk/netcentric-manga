@@ -40,11 +40,6 @@ func ResponseValidator() gin.HandlerFunc {
 	})
 }
 
-// ErrorHandler provides centralized error handling
-func ErrorHandler() gin.HandlerFunc {
-	return gin.Recovery()
-}
-
 // SecurityHeaders adds security headers
 func SecurityHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {

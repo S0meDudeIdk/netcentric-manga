@@ -1,3 +1,8 @@
+// UNUSED FILE - COMMENTED OUT
+// This script was never executed or imported anywhere in the codebase
+// The functions fetchMangaDexYear and fetchMALYear are placeholders that always return 0
+
+/*
 package main
 
 import (
@@ -20,7 +25,7 @@ func main() {
 
 	// Get all manga without publication_year
 	rows, err := db.Query(`
-		SELECT id, title FROM manga 
+		SELECT id, title FROM manga
 		WHERE publication_year IS NULL OR publication_year = 0
 		ORDER BY title
 	`)
@@ -85,3 +90,4 @@ func fetchMALYear(malID string) int {
 	// For now, just return 0
 	return 0
 }
+*/
