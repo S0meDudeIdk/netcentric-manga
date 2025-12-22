@@ -1,3 +1,5 @@
+backup
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -53,7 +55,33 @@ const ChapterReader = () => {
       // Update reading progress if authenticated
       if (isAuthenticated && chapterNumber) {
         try {
+          // First, ensure manga is in library before updating progress
+          // Check if manga is already in library
+          try {
+            const library = await libraryService.getLibrary();
+            const isInLibrary = Object.values(library).flat().some(
+              item => item.manga_id === mangaId
+            );
+            
+            // If not in library, add it with 'reading' status
+            if (!isInLibrary) {
+              console.log('📚 Auto-adding manga to library before updating progress');
+              await libraryService.addToLibrary(mangaId, 'reading');
+            }
+          } catch (libraryErr) {
+            // If library check fails, try to add anyway (might already exist)
+            console.log('📚 Attempting to add manga to library');
+            try {
+              await libraryService.addToLibrary(mangaId, 'reading');
+            } catch (addErr) {
+              // Ignore error if manga already in library
+              console.log('Manga might already be in library:', addErr);
+            }
+          }
+          
+          // Now update progress
           await libraryService.updateProgress(mangaId, parseInt(chapterNumber), 'reading');
+          console.log('✅ Progress updated: Chapter', chapterNumber);
         } catch (err) {
           console.error('Failed to update progress:', err);
         }
