@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -345,7 +346,7 @@ func (c *Client) BrowseManga() {
 
 		// Fallback to REST API if gRPC failed
 		if !c.grpcEnabled {
-			url := fmt.Sprintf("%s/manga/popular?limit=%d&offset=%d", apiURL, limit, offset)
+			url := fmt.Sprintf("%s/manga?limit=%d&offset=%d", apiURL, limit, offset)
 			resp, err := c.makeRequest("GET", url, nil, true)
 			if err != nil {
 				fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
@@ -355,14 +356,13 @@ func (c *Client) BrowseManga() {
 			var result struct {
 				Manga []Manga `json:"manga"`
 				Count int     `json:"count"`
-				Total int     `json:"total"`
 			}
 			if err := json.Unmarshal(resp, &result); err != nil {
 				fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
 				return
 			}
 			mangaList = result.Manga
-			total = result.Total
+			total = result.Count
 		}
 
 		if len(mangaList) == 0 {
@@ -385,6 +385,7 @@ func (c *Client) BrowseManga() {
 				totalPages = page
 			}
 		}
+		log.Print("Total = ", total)
 		fmt.Printf("\n%s📚 Page %d/%d (Total: %d manga)%s\n\n", colorGreen, page, totalPages, total, colorReset)
 
 		for i, manga := range mangaList {
@@ -515,14 +516,13 @@ func (c *Client) SearchManga() {
 			var result struct {
 				Manga []Manga `json:"manga"`
 				Count int     `json:"count"`
-				Total int     `json:"total"`
 			}
 			if err := json.Unmarshal(resp, &result); err != nil {
 				fmt.Println(colorRed + "❌ Error parsing response" + colorReset)
 				return
 			}
 			mangaList = result.Manga
-			total = result.Total
+			total = result.Count
 		}
 
 		if len(mangaList) == 0 {

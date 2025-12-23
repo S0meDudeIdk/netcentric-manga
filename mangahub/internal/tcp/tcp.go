@@ -107,15 +107,15 @@ func (s *ProgressSyncServer) handleTCPClient(conn net.Conn) {
 		}
 
 		// Ignore empty/keep-alive messages (no manga title)
-		if update.MangaTitle == "" {
-			// Still update last seen
-			s.mu.Lock()
-			if client, exists := s.Connections[addr]; exists {
-				client.LastSeen = time.Now()
-			}
-			s.mu.Unlock()
-			continue
-		}
+		// if update.MangaTitle == "" {
+		// 	// Still update last seen
+		// 	s.mu.Lock()
+		// 	if client, exists := s.Connections[addr]; exists {
+		// 		client.LastSeen = time.Now()
+		// 	}
+		// 	s.mu.Unlock()
+		// 	continue
+		// }
 
 		if update.Timestamp == 0 {
 			update.Timestamp = time.Now().Unix()
