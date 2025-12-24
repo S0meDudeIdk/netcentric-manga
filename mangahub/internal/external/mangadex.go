@@ -351,14 +351,8 @@ func (c *MangaDexChapter) GetVolumeNumber() string {
 	return ""
 }
 
-// BuildPageURL constructs the full URL for a chapter page
-func BuildMangaDexPageURL(baseURL, hash, filename string, dataSaver bool) string {
-	quality := "data"
-	if dataSaver {
-		quality = "data-saver"
-	}
-	return fmt.Sprintf("%s/%s/%s/%s", baseURL, quality, hash, filename)
-}
+// Note: BuildMangaDexPageURL has been moved to pkg/utils package
+// Please use utils.BuildMangaDexPageURL instead
 
 // SearchManga searches for manga on MangaDex by title
 func (c *MangaDexClient) SearchManga(title string, limit int) (*MangaDexMangaResponse, error) {

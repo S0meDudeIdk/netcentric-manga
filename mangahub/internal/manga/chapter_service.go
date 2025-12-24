@@ -7,6 +7,7 @@ import (
 	"mangahub/internal/external"
 	"mangahub/pkg/database"
 	"mangahub/pkg/models"
+	"mangahub/pkg/utils"
 	"strconv"
 	"strings"
 )
@@ -53,7 +54,7 @@ func (s *ChapterService) GetChapterList(mangaID string, languages []string, limi
 	}
 
 	// Determine the source based on manga ID prefix
-	if strings.HasPrefix(mangaID, "mangadex-") || strings.HasPrefix(mangaID, "md-") || isMangaDexUUID(mangaID) {
+	if strings.HasPrefix(mangaID, "mangadex-") || strings.HasPrefix(mangaID, "md-") || utils.IsMangaDexUUID(mangaID) {
 		return s.getMangaDexChapters(mangaID, languages, limit, offset)
 	} else if strings.HasPrefix(mangaID, "mangaplus-") {
 		return s.getMangaPlusChapters(mangaID)
@@ -255,7 +256,7 @@ func (s *ChapterService) searchMangaDexByTitle(title string) string {
 		// Try to find exact match first
 		for _, manga := range searchResults.Data {
 			mdTitle := manga.GetTitle()
-			if strings.EqualFold(mdTitle, title) {
+			if utils.EqualsIgnoreCase(mdTitle, title) {
 				return manga.ID
 			}
 		}
@@ -263,8 +264,8 @@ func (s *ChapterService) searchMangaDexByTitle(title string) string {
 		// If no exact match, try case-insensitive contains
 		for _, manga := range searchResults.Data {
 			mdTitle := manga.GetTitle()
-			if strings.Contains(strings.ToLower(mdTitle), strings.ToLower(title)) ||
-				strings.Contains(strings.ToLower(title), strings.ToLower(mdTitle)) {
+			if utils.ContainsIgnoreCase(mdTitle, title) ||
+				utils.ContainsIgnoreCase(title, mdTitle) {
 				return manga.ID
 			}
 		}
@@ -274,10 +275,7 @@ func (s *ChapterService) searchMangaDexByTitle(title string) string {
 	}
 
 	// Strategy 2: Try removing common suffixes/prefixes
-	cleanTitle := strings.TrimSpace(title)
-	cleanTitle = strings.TrimSuffix(cleanTitle, " (TV)")
-	cleanTitle = strings.TrimSuffix(cleanTitle, " (Dub)")
-	cleanTitle = strings.TrimSuffix(cleanTitle, " (Sub)")
+	cleanTitle := utils.CleanMangaTitle(title)
 
 	if cleanTitle != title {
 		searchResults, err = s.mangaDexClient.SearchManga(cleanTitle, 5)
@@ -303,7 +301,7 @@ func (s *ChapterService) GetChapterPages(chapterID, source string) (*models.Chap
 // getMangaDexChapters retrieves chapters from MangaDex
 func (s *ChapterService) getMangaDexChapters(mangaID string, languages []string, limit, offset int) (*models.ChapterListResponse, error) {
 	// Extract MangaDex ID
-	mdID := strings.TrimPrefix(mangaID, "mangadex-")
+	mdID := utils.ExtractIDFromPrefix(mangaID, "mangadex-")
 
 	// Set defaults
 	if limit <= 0 {
@@ -370,7 +368,7 @@ func (s *ChapterService) getMangaDexChapters(mangaID string, languages []string,
 // getMangaPlusChapters retrieves chapters from MangaPlus
 func (s *ChapterService) getMangaPlusChapters(mangaID string) (*models.ChapterListResponse, error) {
 	// Extract MangaPlus title ID
-	titleIDStr := strings.TrimPrefix(mangaID, "mangaplus-")
+	titleIDStr := utils.ExtractIDFromPrefix(mangaID, "mangaplus-")
 	titleID, err := strconv.Atoi(titleIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid MangaPlus title ID: %w", err)
@@ -426,7 +424,7 @@ func (s *ChapterService) getMangaDexPages(chapterID string) (*models.ChapterPage
 	// Build page URLs
 	pages := make([]string, 0, len(atHome.Chapter.Data))
 	for _, filename := range atHome.Chapter.Data {
-		pageURL := external.BuildMangaDexPageURL(atHome.BaseUrl, atHome.Chapter.Hash, filename, false)
+		pageURL := utils.BuildMangaDexPageURL(atHome.BaseUrl, atHome.Chapter.Hash, filename, false)
 		pages = append(pages, pageURL)
 	}
 

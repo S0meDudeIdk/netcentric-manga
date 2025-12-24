@@ -1,9 +1,8 @@
 package api
 
 import (
-	"fmt"
 	"mangahub/pkg/models"
-	"strings"
+	"mangahub/pkg/utils"
 )
 
 // enrichMangaWithRatings adds custom user ratings to manga list, replacing MAL ratings
@@ -33,62 +32,52 @@ func (s *APIServer) enrichMangaWithRatings(mangaList []*models.Manga, userID str
 // Helper function to validate individual manga data
 func (s *APIServer) validateSingleMangaData(manga models.Manga) error {
 	// Check required fields
-	if manga.ID == "" {
-		return fmt.Errorf("manga ID is required")
+	if err := utils.ValidateNonEmpty(manga.ID, "manga ID"); err != nil {
+		return err
 	}
 
-	if manga.Title == "" {
-		return fmt.Errorf("manga title is required")
+	if err := utils.ValidateNonEmpty(manga.Title, "manga title"); err != nil {
+		return err
 	}
 
 	// Validate ID format (no spaces, special characters)
-	if strings.Contains(manga.ID, " ") {
-		return fmt.Errorf("manga ID cannot contain spaces")
+	if err := utils.ValidateMangaID(manga.ID); err != nil {
+		return err
 	}
 
 	// Validate status
-	if manga.Status != "" {
-		validStatuses := []string{"ongoing", "completed", "hiatus", "dropped", "cancelled"}
-		isValid := false
-		for _, status := range validStatuses {
-			if manga.Status == status {
-				isValid = true
-				break
-			}
-		}
-		if !isValid {
-			return fmt.Errorf("invalid status: %s (must be one of: %s)", manga.Status, strings.Join(validStatuses, ", "))
-		}
+	if err := utils.ValidateStatus(manga.Status); err != nil {
+		return err
 	}
 
 	// Validate chapters
-	if manga.TotalChapters < 0 {
-		return fmt.Errorf("total chapters cannot be negative")
+	if err := utils.ValidateNonNegative(manga.TotalChapters, "total chapters"); err != nil {
+		return err
 	}
 
 	// Validate genres (at least one genre required)
-	if len(manga.Genres) == 0 {
-		return fmt.Errorf("at least one genre is required")
+	if err := utils.ValidateSliceNotEmpty(manga.Genres, "genre"); err != nil {
+		return err
 	}
 
 	// Validate title length
-	if len(manga.Title) > 200 {
-		return fmt.Errorf("title too long (max 200 characters)")
+	if err := utils.ValidateStringLength(manga.Title, "title", 200); err != nil {
+		return err
 	}
 
 	// Validate description length
-	if len(manga.Description) > 2000 {
-		return fmt.Errorf("description too long (max 2000 characters)")
+	if err := utils.ValidateStringLength(manga.Description, "description", 2000); err != nil {
+		return err
 	}
 
 	// Validate author length
-	if len(manga.Author) > 100 {
-		return fmt.Errorf("author name too long (max 100 characters)")
+	if err := utils.ValidateStringLength(manga.Author, "author name", 100); err != nil {
+		return err
 	}
 
 	// Validate URL format if provided
-	if manga.CoverURL != "" && !strings.HasPrefix(manga.CoverURL, "http") {
-		return fmt.Errorf("cover image URL must be a valid HTTP/HTTPS URL")
+	if err := utils.ValidateURL(manga.CoverURL); err != nil {
+		return err
 	}
 
 	return nil

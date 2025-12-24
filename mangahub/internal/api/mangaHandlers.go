@@ -6,6 +6,7 @@ import (
 	"mangahub/internal/external"
 	"mangahub/internal/udp"
 	"mangahub/pkg/models"
+	"mangahub/pkg/utils"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,7 +43,7 @@ func (s *APIServer) searchManga(c *gin.Context) {
 	if genresStr := c.Query("genres"); genresStr != "" {
 		req.Genres = strings.Split(genresStr, ",")
 		for i := range req.Genres {
-			req.Genres[i] = strings.TrimSpace(req.Genres[i])
+			req.Genres[i] = utils.SanitizeString(req.Genres[i])
 		}
 	}
 
@@ -264,7 +265,6 @@ func (s *APIServer) deleteManga(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Manga deleted successfully"})
 }
 
-
 // getChapterList handles GET /api/v1/manga/:id/chapters
 func (s *APIServer) getChapterList(c *gin.Context) {
 	mangaID := c.Param("id")
@@ -434,4 +434,3 @@ func (s *APIServer) getMangaRatings(c *gin.Context) {
 
 	c.JSON(http.StatusOK, stats)
 }
-

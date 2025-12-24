@@ -7,6 +7,7 @@ import (
 	"mangahub/internal/manga"
 	"mangahub/pkg/database"
 	"mangahub/pkg/models"
+	"mangahub/pkg/utils"
 	"net/http"
 	"os"
 	"strconv"
@@ -575,23 +576,16 @@ func (s *FetchMangaServer) getImportStats(c *gin.Context) {
 // validateSingleMangaData validates individual manga data
 func (s *FetchMangaServer) validateSingleMangaData(manga models.Manga) error {
 	// Required fields
-	if manga.Title == "" {
-		return fmt.Errorf("title is required")
+	if err := utils.ValidateNonEmpty(manga.Title, "title"); err != nil {
+		return err
 	}
-	if manga.ID == "" {
-		return fmt.Errorf("ID is required")
+	if err := utils.ValidateNonEmpty(manga.ID, "ID"); err != nil {
+		return err
 	}
 
 	// Validate status
-	validStatuses := map[string]bool{
-		"ongoing":   true,
-		"completed": true,
-		"hiatus":    true,
-		"cancelled": true,
-		"":          true, // Empty is allowed
-	}
-	if manga.Status != "" && !validStatuses[manga.Status] {
-		return fmt.Errorf("invalid status: %s", manga.Status)
+	if err := utils.ValidateStatus(manga.Status); err != nil {
+		return err
 	}
 
 	// Validate rating (0-10 range)
@@ -605,8 +599,8 @@ func (s *FetchMangaServer) validateSingleMangaData(manga models.Manga) error {
 	}
 
 	// Validate total chapters count
-	if manga.TotalChapters < 0 {
-		return fmt.Errorf("total chapters count cannot be negative")
+	if err := utils.ValidateNonNegative(manga.TotalChapters, "total chapters count"); err != nil {
+		return err
 	}
 
 	return nil

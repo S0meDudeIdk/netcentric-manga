@@ -3,6 +3,7 @@ package api
 import (
 	"mangahub/internal/auth"
 	internalWebsocket "mangahub/internal/websocket"
+	"mangahub/pkg/utils"
 	"net/http"
 	"os"
 	"strings"
@@ -153,7 +154,7 @@ func corsMiddleware() gin.HandlerFunc {
 			// Split comma-separated origins and check if request origin is allowed
 			allowedOrigins := strings.Split(allowedOriginsStr, ",")
 			for _, allowed := range allowedOrigins {
-				allowed = strings.TrimSpace(allowed)
+				allowed = utils.SanitizeString(allowed)
 				if allowed == origin {
 					allowOrigin = origin
 					break
@@ -162,7 +163,7 @@ func corsMiddleware() gin.HandlerFunc {
 			// If origin not found in allowed list, don't set the header
 			if allowOrigin == "" && len(allowedOrigins) > 0 {
 				// For development, allow the first origin if origin is not in the list
-				allowOrigin = strings.TrimSpace(allowedOrigins[0])
+				allowOrigin = utils.SanitizeString(allowedOrigins[0])
 			}
 		}
 
