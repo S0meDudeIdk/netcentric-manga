@@ -872,36 +872,31 @@ func (c *Client) UpdateProgress() {
 		return
 	}
 
-	// Try gRPC first, fallback to REST API
-	if c.grpcEnabled && c.grpcClient != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		resp, err := c.grpcClient.UpdateProgress(ctx, c.UserID, mangaID, int32(chapter), status)
-		cancel()
-
-		if err != nil {
-			fmt.Printf("%s⚠️  gRPC error: %v, falling back to REST API%s\n", colorYellow, err, colorReset)
-			c.grpcEnabled = false
-		} else if resp.Success {
-			fmt.Println(colorGreen + "✅ Progress updated!" + colorReset)
-			// Sync progress to TCP server for real-time updates
-			if c.tcpEnabled {
-				fmt.Println(colorCyan + "📡 Progress synced to other clients" + colorReset)
-			}
-			return
-		} else if resp.Error != "" {
-			fmt.Println(colorRed + "❌ Error: " + resp.Error + colorReset)
-			return
-		}
-	}
-
-	// Fallback to REST API if gRPC failed
 	data := map[string]interface{}{
 		"manga_id":        mangaID,
 		"current_chapter": chapter,
 		"status":          status,
 	}
 
-	_, err := c.makeRequest("PUT", apiURL+"/users/progress", data, true)
+	// Try gRPC-backed HTTP route first if gRPC is enabled, fallback to regular REST API
+	var err error
+	if c.grpcEnabled {
+		_, err = c.makeRequest("PUT", apiURL+"/grpc/progress/update", data, true)
+		if err != nil {
+			fmt.Printf("%s⚠️  gRPC route error: %v, falling back to REST API%s\n", colorYellow, err, colorReset)
+			c.grpcEnabled = false
+		} else {
+			fmt.Println(colorGreen + "✅ Progress updated!" + colorReset)
+			// Sync progress to TCP server for real-time updates
+			if c.tcpEnabled {
+				fmt.Println(colorCyan + "📡 Progress synced to other clients" + colorReset)
+			}
+			return
+		}
+	}
+
+	// Fallback to regular REST API
+	_, err = c.makeRequest("PUT", apiURL+"/users/progress", data, true)
 	if err != nil {
 		fmt.Println(colorRed + "❌ Error: " + err.Error() + colorReset)
 		return
