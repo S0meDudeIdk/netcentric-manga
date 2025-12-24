@@ -229,7 +229,11 @@ func (s *APIServer) updateManga(c *gin.Context) {
 			Timestamp: time.Now().Unix(),
 		}
 		wsMessage = fmt.Sprintf("📖 New chapter %d released for %s", req.TotalChapters, updatedManga.Title)
-	} else {
+
+		go s.triggerUDPNotification(notification)
+		s.ChatHub.BroadcastNotification(updatedManga.ID, notification.Type, wsMessage)
+	}
+	if req.Status != "" {
 		notification = udp.Notification{
 			Type:      "manga_update",
 			MangaID:   updatedManga.ID,
@@ -237,12 +241,12 @@ func (s *APIServer) updateManga(c *gin.Context) {
 			Timestamp: time.Now().Unix(),
 		}
 		wsMessage = fmt.Sprintf("🔄 Manga %s updated: %s", updatedManga.Title, updatedManga.Status)
+
+		go s.triggerUDPNotification(notification)
+		s.ChatHub.BroadcastNotification(updatedManga.ID, notification.Type, wsMessage)
 	}
 
-	go s.triggerUDPNotification(notification)
-
 	// Also broadcast to WebSocket clients
-	s.ChatHub.BroadcastNotification(updatedManga.ID, notification.Type, wsMessage)
 
 	c.JSON(http.StatusOK, updatedManga)
 }

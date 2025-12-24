@@ -129,12 +129,12 @@ type CreateMangaRequest struct {
 
 // UpdateMangaRequest represents a request to update manga information
 type UpdateMangaRequest struct {
-	Title         string   `json:"title" binding:"required,min=1,max=200"`
-	Author        string   `json:"author" binding:"required,min=1,max=100"`
-	Genres        []string `json:"genres" binding:"required,min=1"`
-	Status        string   `json:"status" binding:"required,oneof=ongoing completed hiatus dropped cancelled"`
-	TotalChapters int      `json:"total_chapters" binding:"min=0"`
-	Description   string   `json:"description" binding:"max=2000"`
+	Title         string   `json:"title" binding:"omitempty,min=1,max=200"`
+	Author        string   `json:"author" binding:"omitempty,min=1,max=100"`
+	Genres        []string `json:"genres" binding:"omitempty,min=1"`
+	Status        string   `json:"status" binding:"omitempty,oneof=ongoing completed hiatus dropped cancelled"`
+	TotalChapters int      `json:"total_chapters" binding:"omitempty,min=0"`
+	Description   string   `json:"description" binding:"omitempty,max=2000"`
 	CoverURL      string   `json:"cover_url" binding:"omitempty,url"`
 }
 
